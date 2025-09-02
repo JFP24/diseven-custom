@@ -1,0 +1,784 @@
+
+.contenedor {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;         
+}
+
+
+.layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+  background:
+  linear-gradient(180deg, #c5c5c5 0%, #b0b0b0 100%); /* gris degradado */
+}
+
+
+.layout * {
+  animation: popIn 0.5s cubic-bezier(.22,.61,.36,1) both;
+  animation-delay: calc(var(--delay, 0) * 100ms);
+}
+
+
+.plateToggle{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;          /* compensa el icono */
+  line-height: 1;
+}
+
+.plateIcon{
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 4px rgba(0,0,0,.25));
+  pointer-events: none;
+}
+
+.btnLabel{
+  white-space: nowrap;
+}
+
+/* Mejor feedback visual al activo */
+.smallButton.active,
+.smallButton.active:hover{
+   box-shadow:
+    0 0 0 2px rgba(59,130,246,.35),  /* anillo azul suave */
+    0 10px 24px rgba(59,130,246,.22);/* glow colorido */
+    border: 1px solid rgba(59,130,246,.35)  ;
+}
+
+
+.sidebar {
+  position: static;
+  top: auto;
+  overflow: visible;
+  margin-top: 50px;
+  margin: 16px;
+  padding: 30px;
+  width: 350px;
+height: 800px;
+  border-radius: 16px; 
+
+  /* background: #ffffff;        */
+  border: 1px solid #e5e7eb; 
+
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+   z-index: 5;
+}
+
+
+
+/* === REPLACE: mainArea (espaciado y ritmo vertical) === */
+.mainArea{
+  padding:28px;
+  display:flex;
+  flex-direction:column;
+  gap:20px;
+}
+
+
+/* === REPLACE: canvasCard (contenedor premium, responsive) === */
+.canvasCard{
+  border-radius: var(--r-lg);
+  padding: 18px;
+  box-shadow: var(--sh-md);
+  background: var(--bg-elev);
+  width: min(100%, 1200px);
+  min-height: clamp(540px, 72vh, 820px);
+  margin-inline:auto;
+  display:flex;
+  border:1px solid var(--line);
+}
+
+
+/* === REPLACE: sectionTitle (tipografía más limpia) === */
+.sectionTitle{
+  font-weight:700;
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  margin: 8px 0 6px;
+  color: #000;
+}
+
+
+/* Responsive layout */
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; }
+}
+
+/* === REPLACE: suicheList (alineación y respiración) === */
+.suicheList{
+  display:grid;
+  grid-template-columns: repeat(3, 90px);
+  justify-content:center;
+  gap: 18px 26px;
+}
+@media (max-width: 420px){
+  .suicheList{ grid-template-columns: repeat(2, 90px); }
+}
+
+/* ===== Entrada con pop + blur y retraso escalonado ===== */
+@keyframes popIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+/* Aplicar popIn a todo lo principal */
+.sidebar,
+.mainArea,
+.canvasCard,
+.suicheList,
+.iconGrid,
+.iconGridSide,
+.plantillaGrid,
+.texturaGrid,
+.toolbarGroup,
+.iconsPane,
+.modal,
+.workbench {
+  animation: popIn 0.5s cubic-bezier(.22,.61,.36,1) both;
+}
+
+/* Para que no entren todos a la vez, sino escalonados */
+.sidebar { animation-delay: 120ms; }
+.mainArea { animation-delay: 10ms; }
+.canvasCard { animation-delay: 120ms; }
+.suicheList { animation-delay: 120ms; }
+.iconGrid, .iconGridSide { animation-delay: 120ms; }
+.plantillaGrid { animation-delay: 120ms; }
+.texturaGrid { animation-delay: 120ms; }
+.toolbarGroup { animation-delay: 120ms; }
+.iconsPane { animation-delay: 120ms; }
+.modal { animation-delay: 120ms; }
+.workbench { animation-delay: 120ms ; }
+
+.suicheItem {
+  width: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: popIn .5s cubic-bezier(.22,.61,.36,1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+/* ===== Botón circular ===== */
+.suicheButton {
+  position: relative;           /* necesario para ::before/::after */
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .18s ease, box-shadow .25s ease, border-color .25s ease;
+  will-change: transform, box-shadow;
+}
+.suicheButton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0,0,0,.10);
+}
+
+/* ===== Estado ACTIVO elegante ===== */
+/* Glow exterior + anillo exterior animado */
+.suicheButton::after {
+  content: "";
+  position: absolute;
+  inset: -4px;                  /* halo alrededor */
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 0 rgba(59,130,246,0), /* se anima al activar */
+    0 6px 16px rgba(0,0,0,.08);
+  opacity: 0;
+  transform: scale(.92);
+  transition: transform .28s ease, opacity .28s ease, box-shadow .32s ease;
+}
+.suicheButton.active::after {
+  opacity: 1;
+  transform: scale(1);
+  box-shadow:
+    0 0 0 2px rgba(59,130,246,.35),  /* anillo azul suave */
+    0 10px 24px rgba(59,130,246,.22);/* glow colorido */
+}
+
+/* Anillo interior sutil (como “premium ring”) */
+.suicheButton.active::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px rgba(59,130,246,.55);
+  transition: box-shadow .28s ease;
+}
+
+/* También cuando pasas el mouse sin activar, muestra un halo suave */
+.suicheButton:hover::after {
+  opacity: .6;
+  transform: scale(1);
+  box-shadow:
+    0 0 0 2px rgba(59,130,246,.18),
+    0 8px 22px rgba(0,0,0,.12);
+}
+
+/* Accesibilidad: al navegar con teclado */
+.suicheButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.35);
+}
+
+/* ===== Texto alineado y uniforme ===== */
+.suicheLabel {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #333;
+  text-align: center;
+  line-height: 1.1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 28px;
+  width: 100%;
+}
+
+/* Responsive opcional */
+@media (max-width: 420px) {
+  .suicheList { grid-template-columns: repeat(2, 90px); }
+}
+
+
+/* (opcional) responsive: 2 cols en pantallas angostas */
+@media (max-width: 420px) {
+  .suicheList { grid-template-columns: repeat(2, 90px); }
+}
+
+
+
+/* Tooltip (opcional para suiches con label) */
+.tooltip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background-color: #1f2937;
+  color: white;
+  font-size: 0.75rem;
+  border-radius: 0.375rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease-in-out;
+  z-index: 10;
+}
+.suicheButton:hover .tooltip { opacity: 1; }
+
+/* Acabados tipo "brushed" */
+.brushed {
+  background: repeating-linear-gradient(90deg,#2a2a2a,#353535 1px,#404040 2px,#353535 3px,#2a2a2a 4px),
+              linear-gradient(180deg,rgba(60,60,60,0.4) 0%,rgba(42,42,42,1) 100%);
+}
+.brushedGold {
+  background: repeating-linear-gradient(90deg,#b8860b,#c49315 1px,#d4a017 2px,#c49315 3px,#b8860b 4px),
+              linear-gradient(180deg,rgba(255,215,0,0.4) 0%,rgba(184,134,11,1) 100%);
+  border: 2px solid black; box-shadow: 0 0 0 1px #000;
+}
+.brushedGray {
+  background: repeating-linear-gradient(90deg,#808080,#888888 1px,#909090 2px,#888888 3px,#808080 4px),
+              linear-gradient(180deg,rgba(160,160,160,0.4) 0%,rgba(128,128,128,1) 100%);
+}
+.brushedAlmond {
+  background: repeating-linear-gradient(90deg,#e8dcbc,#eae0c4 1px,#ece4cc 2px,#eae0c4 3px,#e8dcbc 4px),
+              linear-gradient(180deg,rgba(242,239,226,0.4) 0%,rgba(232,220,188,1) 100%);
+  border: 2px solid black; box-shadow: 0 0 0 1px #000;
+}
+.brushedNickel {
+  background: repeating-linear-gradient(90deg,#8c8279,#948a82 1px,#9c928a 2px,#948a82 3px,#8c8279 4px),
+              linear-gradient(180deg,rgba(186,168,159,0.4) 0%,rgba(140,130,121,1) 100%);
+  border: 2px solid black; box-shadow: 0 0 0 1px #000;
+}
+.brushedSilver {
+  background: repeating-linear-gradient(90deg,#c0c0c0,#c8c8c8 1px,#d0d0d0 2px,#c8c8c8 3px,#c0c0c0 4px),
+              linear-gradient(180deg,rgba(224,224,224,0.4) 0%,rgba(192,192,192,1) 100%);
+  border: 2px solid black; box-shadow: 0 0 0 1px #000;
+}
+.brushedTitanium {
+  background: repeating-linear-gradient(90deg,#6d6d6d,#757575 1px,#7d7d7d 2px,#757575 3px,#6d6d6d 4px),
+              linear-gradient(180deg,rgba(140,140,140,0.4) 0%,rgba(109,109,109,1) 100%);
+  border: 2px solid black; box-shadow: 0 0 0 1px #000;
+}
+.brushedWhite {
+  background: repeating-linear-gradient(90deg,#e8e8e8,#ececec 1px,#f0f0f0 2px,#ececec 3px,#e8e8e8 4px),
+              linear-gradient(180deg,rgba(255,255,255,0.4) 0%,rgba(232,232,232,1) 100%);
+  border: 2px solid black; box-shadow: 0 0 0 1px #000;
+}
+
+
+
+
+
+/* ===========================
+   PLANTILLAS
+   =========================== */
+.plantillaGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr); /* antes 3 */
+  gap: 26px; /* menos espacio entre ellas */
+}
+.plantillaBtn,
+.plantillaButton {
+  padding: 4px;
+  border-radius: 10px;
+  border: 2px solid #000000;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color .2s ease, background .2s ease;
+  width: 100%;
+}
+.plantillaBtnActive,
+.plantillaButton.active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+.plantillaThumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+/* ===========================
+   TEXTURAS
+   =========================== */
+.texturaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.texturaButton {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 4px;
+  background-color: white;
+  cursor: pointer;
+}
+.texturaThumb,
+.texturaMiniatura {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+}
+.texturaThumbActive {
+  outline: 3px solid rgba(59,130,246,.4);
+}
+
+/* ===========================
+   ICONOS
+   =========================== */
+.iconGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 10px;
+}
+.iconoButton {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: box-shadow .2s ease, transform .15s ease;
+}
+.iconoButton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,.06);
+}
+.iconoMiniatura {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+.iconoMiniaturaTexto {
+  font-size: 12px;
+  color: #334155;
+}
+
+/* ===========================
+   HELPERS / TOOLBAR
+   =========================== */
+
+
+.canvasToolbar {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  
+
+}
+.toolbarGroup {
+  display: flex;
+  flex-direction: column;
+
+  gap: 12px;
+  margin-top: 10px;
+  
+}
+.toolbarLabel {
+  font-weight: 600;
+  font-size: 12px;
+  color: #64748b;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+
+  
+}
+.swatchesRow {
+  display: flex;
+  gap: 14px;
+}
+
+.toggleRow {
+  display: flex;
+  gap: 15px;
+}
+
+/* Botón pequeño (para editor de texto del icono) */
+.smallButton {
+  height: 28px;
+  padding: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+ 
+  color: #0f172a;
+  font-size: 12px;
+  cursor: pointer;
+}
+.smallButton:hover {
+  filter: brightness(0.97);
+}
+
+
+.swatchItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.swatchCircle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  background: #e63838;
+  display: inline-block;
+}
+.swatchCircleActive {
+  outline: 3px solid rgba(59,130,246,.35);
+}
+
+.swatchText {
+  font-size: 11px;
+  color: #475569;
+}
+
+/* ===========================
+   WORKBENCH
+   =========================== */
+.workbench {
+  display: grid;
+  grid-template-columns: 1fr 300px; /* canvas | panel iconos (ya no se usa si pasaste a modal) */
+  gap: 16px;
+  align-items: start;
+}
+.canvasPane { 
+  
+  min-width: 0;
+
+
+}
+
+
+
+.iconsPane {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 12px;
+}
+.iconGridSide {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 1100px) {
+  .workbench { grid-template-columns: 1fr; }
+  .iconsPane { position: static; max-height: none; }
+  .iconGridSide { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+}
+
+/* === Modal base === */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+}
+.modal {
+  max-width: 1400px;
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.18);
+  overflow: hidden;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.modalHeader h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: .02em;
+}
+.modalClose {
+  border: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #0f172a;
+  cursor: pointer;
+}
+.modalClose:hover { filter: brightness(0.96); }
+.modalBody {
+  padding: 14px;
+  max-height: min(80dvh, 820px); /* Más alto */
+  overflow: auto;
+}
+.iconGridSide {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)); /* Más columnas */
+  gap: 14px; /* Más espacio */
+}
+
+@media (min-width: 560px) {
+  .iconGridSide { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 720px) {
+  .iconGridSide { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+.slot-grande {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slot-grande img {
+  width: 70%;  /* o el tamaño que mejor funcione */
+  height: auto;
+}
+.iconGlow {
+  filter: drop-shadow(0 0 10px rgba(255,255,255,0.6))
+          drop-shadow(0 0 20px rgba(255,255,255,0.8));
+  transition: filter 0.3s ease;
+}
+
+.iconGlow.darkBackground {
+  filter: drop-shadow(0 0 15px rgba(0,255,255,0.9))
+          drop-shadow(0 0 30px rgba(0,255,255,1));
+}
+
+
+
+
+/* === ADD: Botón contenedor de previews (abre modal) === */
+.previewButton{
+  width: 100%;
+  height: 94px;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg,#fcfcfd,#f3f5f8);
+  box-shadow: 0 6px 18px rgba(15,23,42,.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: transform .16s ease, box-shadow .25s ease, border-color .25s ease, background .25s ease;
+  animation: popIn .5s cubic-bezier(.22,.61,.36,1) both;
+}
+.previewButton:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgba(15,23,42,.12);
+  border-color: rgba(15,23,42,.12);
+  background: linear-gradient(180deg,#ffffff,#eef2f7);
+}
+.previewButton:active{
+  transform: translateY(0);
+}
+
+/* Tira de 3 miniaturas dentro del botón */
+.thumbStrip{
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 44px;  /* tamaño miniatura */
+  gap: 15px;
+  align-items: center;
+}
+.thumbMini{
+  width: 44px;
+  height: 54px;
+  border-radius: 10px;
+  border: 1px solid var(--line, #e5e7eb);
+  object-fit: contain;              /* <- NO recortar */
+  background: #c54242;
+  box-shadow: 0 2px 6px rgba(15,23,42,.06);
+  pointer-events: none;
+}
+
+.thumbMiniPlantilla{
+  background: linear-gradient(180deg,#edf1f6,#e6ebf2);  /* gris elegante */
+  border-color: #cbd5e1;                                /* más contraste */
+  box-shadow:
+    inset 0 0 0 1px rgba(0,0,0,.06),                    /* marco sutil */
+    0 2px 6px rgba(15,23,42,.06);
+  filter:
+    drop-shadow(0 0 0.6px rgba(0,0,0,.55))              /* delineado fino */
+    drop-shadow(0 1px 2px rgba(0,0,0,.25))
+    contrast(1.06) brightness(.98);                     /* levanta blancos */
+}
+
+.thumbMiniIcon{
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line, #e5e7eb);
+  object-fit: cover;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(15,23,42,.06);
+  pointer-events: none;     /* evita drag */
+}
+
+.thumbMiniIcon{
+  background: #fff;
+  border-color: var(--line, #e5e7eb);
+  padding: 4px;
+  filter: none;
+}
+/* Indicador a la derecha (sin texto) */
+.previewChevron{
+  font-size: 26px;
+  color: #334155;
+  opacity: .9;
+  transform: translateX(0);
+  transition: transform .2s ease;
+}
+.previewButton:hover .thumbMiniPlantilla{
+  filter:
+    drop-shadow(0 0 0.8px rgba(0,0,0,.6))
+    drop-shadow(0 2px 3px rgba(0,0,0,.28))
+    contrast(1.08) brightness(.985);
+}
+
+
+/* Tema del modal */
+.modalLight { background: #ffffff; color: #111; }
+.modalDark  { background: #ffffff; color: #f5f5f5; }
+
+/* Fondo del contenedor de iconos dentro del modal (contraste extra) */
+.lightBody { background: #f7f7f7;  }
+.darkBody  { background: #a1a1a1;   border-radius: 8px; padding: 12px;}
+
+/* Miniaturas: halo para que se vean sobre fondo claro/oscuro */
+.iconoMiniatura {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  background-color: #a1a1a1;
+}
+.modalDark .iconoMiniatura {
+  filter: drop-shadow(0 0 1px rgba(255,255,255,0.65));
+  background-color: #f5f5f5;
+  border: none;
+}
+
+/* Botón de icono con borde sutil según tema */
+.iconoButton {
+  background: transparent;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  border-radius: 10px;
+  padding: 8px;
+}
+.modalDark .iconoButton { border:2px solid black; }
+
+.iconBtn {
+  --size: 44px;
+position: relative;
+right: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size);
+  height: var(--size);
+
+  border-radius: 50%;
+  border: 1px solid #464646;          /* dorado elegante */
+  background: #e0e0e0;                   /* negro limpio */
+  cursor: pointer;
+
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.iconBtn:hover {
+  transform: rotate(90deg);           /* giro suave */
+  box-shadow: 0 0 12px rgba(201,180,122,0.6);
+}
+
+.iconBtn:active {
+  transform: scale(0.95);             /* efecto click */
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+  filter: brightness(1.1);
+}
