@@ -3,6 +3,8 @@ import useImage from 'use-image';
 import React ,{ useEffect, useRef, useState, useCallback } from 'react';
 import styles from './diseñoCanvas.module.css';
 const reloadIcon = "/assets/ICONOS/icono-reload.png";
+const logoDiseven = "/assets/imgHome/logo_negro.png";
+
 // Reemplaza la firma y el useImage:
 // Reemplaza TU IconWithLabel completo por este:
 // REPLACE la firma y el Group de IconWithLabel:
@@ -651,6 +653,15 @@ useEffect(() => {
 
   return (
     <div className={styles.contenedor}>
+        {/* <div className={styles.header}>
+        <img
+          src={"https://developer-appv2.s3.us-east-1.amazonaws.com/icons/casa-hogar-home-cabaña-exterior.gif"}
+          className={styles.casaR}
+        />
+        </div> */}
+      <div className={styles.logo}>
+        <img src={logoDiseven} className={styles.imgLogo}/>
+      </div>
       <div className={styles.layout}>
         <aside className={styles.sidebar}>
 
@@ -663,12 +674,8 @@ useEffect(() => {
     onClick={() => { setPlateMode('sencilla'); setActiveArea('single'); resetAll(); }}
     aria-pressed={plateMode==='sencilla'}
     title="Suiches (sencilla)"
-  >
-      
+  > 
     <img src="/assets/suichesSencillo/suiche2.png" alt="" className={styles.plateIcon} draggable={false} />
-    {/* Opción B: fallback SVG (se ve ya mismo) */}
-
-    {/* <span className={styles.btnLabel}>Sencillo</span> */}
   </button>
 
   {/* Doble */}
@@ -849,10 +856,8 @@ useEffect(() => {
     autoFocus
   />
 )}
-    <div>
-<button className={styles.iconBtn} title="Reset iconos" onClick={() => resetArea(plateMode==='sencilla' ? 'single' : activeArea)}>
-  <img src={reloadIcon} alt="" className={styles.icon} />
-</button>
+    <div className={styles.contenedor2}>
+  
 
 
 

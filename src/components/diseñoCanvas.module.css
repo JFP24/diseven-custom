@@ -6,13 +6,32 @@
 }
 
 
+.header {
+  position: absolute;
+}
+
+.casaR{
+  width: 75px;
+}
+
+.logo{
+  position: absolute;
+  right: 25px;
+  bottom: 20px;
+}
+
+.imgLogo {
+  width: 150px;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(260px, 320px) 1fr; /* flexible */
   min-height: 100dvh;
   width: 100%;
+
   overflow: hidden;
-  background: linear-gradient(180deg, #c5c5c5 0%, #b0b0b0 100%);
+  background: linear-gradient(180deg, #b0b0b0 0%, #a8bbd1 100%);
 }
 
 
@@ -53,8 +72,8 @@
 
 
 .sidebar {
-  position: static;
-  top: auto;
+  position: relative;
+  top: 10px;
   overflow: visible;
   margin-top: 50px;
   margin: 16px;
@@ -78,6 +97,7 @@ height: 750px;
   display:flex;
   flex-direction:column;
   gap:20px;
+  
 }
 
 
@@ -88,10 +108,12 @@ height: 750px;
   box-shadow: var(--sh-md);
   background: var(--bg-elev);
   width: min(100%, 1200px);
-  min-height: clamp(540px, 72vh, 820px);
-  margin-inline:auto;
+height: 0; 
+ margin-inline:auto;
   display:flex;
   border:1px solid var(--line);
+  position: relative;
+  bottom: 30px;
 }
 
 
@@ -781,5 +803,18 @@ right: 200px;
   height: 18px;
   filter: brightness(1.1);
 }
+
+/* 1366–1399.98 */
+@media (min-width: 1166px) and (max-width: 1599.98px) {
+  .layout { grid-template-columns: minmax(260px, 300px) 1fr; }
+  .mainArea { padding: 20px; }
+  .sidebar {
+    height: 85%;
+    width: 95%;
+  }
+   .canvasCard{ width:1000px; position: relative;right: 150px; height: 0; } 
+   .contenedor2 {position: relative; right:50px; top: 30px;}
+}
+
 
 
