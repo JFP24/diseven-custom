@@ -282,10 +282,34 @@ function layoutIconInSlot(slot, withLabel = true) {
 }
 
 
+function useContainerSize() {
+  const ref = React.useRef(null);
+  const [size, setSize] = React.useState({ w: 100, h: 900 });
+
+  React.useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const cw = entry.contentRect.width;
+      // Mantén la relación original 1100:900
+      const ratio = 900 / 1100;
+      const w = Math.max(320, cw);     // mínimo razonable
+      const h = Math.round(w * ratio); // alto en función del ancho
+      setSize({ w, h });
+    });
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+
+  return [ref, size];
+}
+const DESIGN_W = 1100;
+const DESIGN_H = 900;
 
 
 const DesignerCanvas = () => {
 
+  const [canvasHostRef, hostSize] = useContainerSize();
+  const scale = Math.min(hostSize.w / DESIGN_W, hostSize.h / DESIGN_H);
 // === ADD (cerca a tus constantes): solo 3 previews ===
 const PREVIEW_PLANTILLAS = plantillaIds.slice(4, 7);
 const PREVIEW_ICONOS = iconNumbers.slice(0, 3);
@@ -627,8 +651,6 @@ useEffect(() => {
 
   return (
     <div className={styles.contenedor}>
-     
-
       <div className={styles.layout}>
         <aside className={styles.sidebar}>
 
@@ -642,7 +664,7 @@ useEffect(() => {
     aria-pressed={plateMode==='sencilla'}
     title="Suiches (sencilla)"
   >
-    {/* Opción A: usa tu PNG si lo tienes */}
+      
     <img src="/assets/suichesSencillo/suiche2.png" alt="" className={styles.plateIcon} draggable={false} />
     {/* Opción B: fallback SVG (se ve ya mismo) */}
 
@@ -709,14 +731,17 @@ useEffect(() => {
           <div className={styles.workbench}>
             
             <div className={styles.canvasPane}>
-              <div className={styles.canvasCard}>
-<Stage
-  ref={stageRef}
-  width={1100}
-  height={900}
-  onMouseDown={handleStageMouseDown}
-  onTouchStart={handleStageMouseDown}
->
+             <div ref={canvasHostRef} className={styles.canvasCard}>
+ <Stage
+                  ref={stageRef}
+                  width={DESIGN_W}
+                  height={DESIGN_H}
+                  scale={{ x: scale, y: scale }}
+                  // Para que el lienzo visible no desborde:
+                  style={{ width: hostSize.w, height: hostSize.h }}
+                  onMouseDown={handleStageMouseDown}
+                  onTouchStart={handleStageMouseDown}
+                >
   <Layer>
     {/* Carcasa */}
     {plateMode === 'sencilla' && carcasaSingle && (

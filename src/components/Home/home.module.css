@@ -140,6 +140,8 @@
   background: radial-gradient(60% 60% at 50% 40%, rgba(10,14,20,.9) 0%, #0b1016 100%);
   backdrop-filter: blur(6px);
 }
+
+
 .introCard {
   padding: 34px 42px;
   border-radius: 20px;

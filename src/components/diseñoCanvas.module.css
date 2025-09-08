@@ -8,12 +8,11 @@
 
 .layout {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: minmax(260px, 320px) 1fr; /* flexible */
   min-height: 100dvh;
   width: 100%;
   overflow: hidden;
-  background:
-  linear-gradient(180deg, #c5c5c5 0%, #b0b0b0 100%); /* gris degradado */
+  background: linear-gradient(180deg, #c5c5c5 0%, #b0b0b0 100%);
 }
 
 
@@ -61,7 +60,7 @@
   margin: 16px;
   padding: 30px;
   width: 350px;
-height: 800px;
+height: 750px;
   border-radius: 16px; 
 
   /* background: #ffffff;        */
@@ -782,3 +781,5 @@ right: 200px;
   height: 18px;
   filter: brightness(1.1);
 }
+
+
