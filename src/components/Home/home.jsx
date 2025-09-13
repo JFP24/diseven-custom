@@ -67,7 +67,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.45, duration: 0.6 }}
           >
-            Ilumina con elegancia
+             Toma el control  de tus espacios con elegancia
           </motion.h1>
 
           <motion.p
@@ -76,7 +76,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6, duration: 0.6 }}
           >
-            Placas táctiles premium con acabados en negro, blanco, titanio y oro cepillado.
+            Conoce los diferentes acabados de carcasas Premium que tenemos disponibles para ti.
           </motion.p>
 
           <motion.div

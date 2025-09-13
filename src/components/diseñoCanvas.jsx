@@ -3,7 +3,7 @@ import useImage from 'use-image';
 import React ,{ useEffect, useRef, useState, useCallback } from 'react';
 import styles from './diseñoCanvas.module.css';
 const reloadIcon = "/assets/ICONOS/icono-reload.png";
-const logoDiseven = "/assets/imgHome/logo_negro.png";
+const logoDiseven = "/assets/imgHome/disevenhome.png";
 
 // Reemplaza la firma y el useImage:
 // Reemplaza TU IconWithLabel completo por este:
@@ -75,6 +75,10 @@ const dataSuiche = {
   suiche16: { color: '#a4948e', image: '/assets/suichesSencillo/suiche16.png', label: 'Nickel' },
   suiche17: { color: '#D3D3D3', image: '/assets/suichesSencillo/suiche17.png', label: 'Silver' },
   suiche18: { color: '#504f4e', image: '/assets/suichesSencillo/suiche18.png', label: 'Space Gray' },
+  suiche19: { color: '#d4af37ff', image: '/assets/suichesSencillo/suiche19.png', label: 'Acrylic  Gold' },
+  suiche20: { color: '#d1a38aff', image: '/assets/suichesSencillo/suiche20.png', label: 'Acrylic Rose Gold' },
+  suiche21: { color: '#b1b1b1ff', image: '/assets/suichesSencillo/suiche21.png', label: 'Acrylic Silver' },
+
 };
 
 
@@ -82,12 +86,38 @@ const dataSuiche = {
 const plantillaIds = ['04','05','06','07','08','09','10','11','12','13','14','15','16','17','18'];
 const getSlotsKey = (id) => `plantillas-${id}.png`;
 
+
+
+
 const iconNumbers = [
   '01','02','03','04','05','06','07','08','09','10',
-  '11','12','13','14','29','30','31','32','33','34',
-  '35','36','38','39','40','41','42','57','58','59',
-  '60','61','62','63','64'
+  '11','12','13',"29",'30',
+  '31','32','33','34','35','36','37','38','39','40',
+  '41','57','58','59','60',
+  '61','62','63','64','65','66','67','68','69','70',
+ '85','86','87','88','89','90',
+  '91','92','93','94','95','96','97','98','114','115','116','117','118','119','120',
+  '121','122','123','124','125','126',
+  '141','142','143','144','145','146','147','148','149','150',
+  '151','152','153','154','169','170',
+  '171','172','173','174','175','176','177','178','179','180',
+  '181','182',"197",'198','199','200',
+  '201','202','203','204','205','206','207','208','209','210',
+ '225','226','227','228','229','230',
+  '231','232','233','234','235','236','237'
 ];
+
+
+const ICON_CATEGORIES = {
+  Todos: iconNumbers,                 
+  Luces: ['01' , "09", "95", "96", "97", "98", "114", "113", "152", "197", "200"], 
+  Electrodomesticos: ['02' , "126", "177", "202", "236"],  
+     
+  Exteriores: ["59", "60", "61", "62", "63", "64", "65", "66", "67", "68", "172", "237", "201"],       
+  "Zonas Comunes": ["05", "07", "08" , "10", "11", "12", "32", "34", "36", "37", "38", "40", "41", "57", "58", "150", "151", "198"],            
+Entretenimientos: ["33", "39", "86", "87",  "89", "93", "142", "143", "144", "145", "148", "149" , "154", "178", "234", "235", "229"],      
+Ventanas : ["115", "116", "117", "118", "119", "120", "121", "122", "123", "124", "174", "175", "169", "85", "35"]  
+};
 
 // Slots normalizados
 const PLANTILLA_SLOTS = {
@@ -313,16 +343,23 @@ const DesignerCanvas = () => {
   const [canvasHostRef, hostSize] = useContainerSize();
   const scale = Math.min(hostSize.w / DESIGN_W, hostSize.h / DESIGN_H);
 // === ADD (cerca a tus constantes): solo 3 previews ===
+// Previews rápidos: toma 3 primeros de la categoría actual
+
+const [selectedCategory, setSelectedCategory] = useState('Todos');
+const [iconSearch, setIconSearch] = useState('');
 const PREVIEW_PLANTILLAS = plantillaIds.slice(4, 7);
-const PREVIEW_ICONOS = iconNumbers.slice(0, 3);
+const getCategoryList = (cat) => (cat === 'Todos' ? iconNumbers : (ICON_CATEGORIES[cat] || []));
+const PREVIEW_ICONOS = getCategoryList(selectedCategory).slice(0, 3);
+
 
 
   const [selectedPlantilla, setSelectedPlantilla] = useState('04');
-  const [selectedSuiche, setSelectedSuiche] = useState(dataSuiche.suiche1.image);
-  const [selectedColor, setSelectedColor] = useState('#FFFFFF');
+  const [selectedSuiche, setSelectedSuiche] = useState(dataSuiche.suiche4.image);
+  const [selectedColor, setSelectedColor] = useState('#000000');
+  console.log(selectedColor)
 useEffect(() => {
   if (selectedColor !== '#FFFFFF' && selectedColor !== '#000000') {
-    setSelectedColor('#FFFFFF');
+    setSelectedColor('#000000');
   }
 }, [selectedColor]);
 
@@ -368,8 +405,6 @@ const slotsLeft   = getSlotsForArea(DOUBLE_PLATE_LEFT,  selectedPlantillaLeft) |
 const slotsRight  = getSlotsForArea(DOUBLE_PLATE_RIGHT, selectedPlantillaRight) || [];
 
 
-  const plantillaPath = getPlantillaPath(selectedPlantilla);
-  const [plantilla] = useImage(plantillaPath);
 
   const slots = getSlotsFor(getSlotsKey(selectedPlantilla));
 
@@ -382,6 +417,8 @@ const [editValue, setEditValue] = useState('');
 const [editPos, setEditPos] = useState({ x: 0, y: 0 });
 const [editWidth, setEditWidth] = useState(0);
 
+
+const [isSuicheModalOpen, setSuicheModalOpen] = useState(false);
 
 
 
@@ -428,37 +465,46 @@ const isInsideAnyPlate = useCallback((p) => {
 
 
 
-const handleStageMouseDown = useCallback((e) => {
+const handleStagePointerDown = useCallback((e) => {
   const stage = e.target.getStage();
-  const p = stage.getPointerPosition();
-  const clickedOnEmpty = e.target === stage;
+  const pos = stage.getPointerPosition();
+  if (!pos) return;
 
-  if (clickedOnEmpty || !isInsideAnyPlate(p)) {
-    clearSelection();
-    return;
+  // Corrige por scale del Stage
+  const p = { x: pos.x / scale, y: pos.y / scale };
+
+  // Si toca fuera de cualquier carcasa, limpia selección
+  if (!isInsideAnyPlate(p)) { clearSelection(); return; }
+
+  // ¿en qué área cayó?
+  let area = 'single';
+  let areaSlots = slotsSingle;
+
+  if (plateMode === 'doble') {
+    const inLeft =
+      p.x >= DOUBLE_PLATE_LEFT.x && p.x <= DOUBLE_PLATE_LEFT.x + DOUBLE_PLATE_LEFT.w &&
+      p.y >= DOUBLE_PLATE_LEFT.y && p.y <= DOUBLE_PLATE_LEFT.y + DOUBLE_PLATE_LEFT.h;
+
+    const inRight =
+      p.x >= DOUBLE_PLATE_RIGHT.x && p.x <= DOUBLE_PLATE_RIGHT.x + DOUBLE_PLATE_RIGHT.w &&
+      p.y >= DOUBLE_PLATE_RIGHT.y && p.y <= DOUBLE_PLATE_RIGHT.y + DOUBLE_PLATE_RIGHT.h;
+
+    if (!inLeft && !inRight) { clearSelection(); return; }
+
+    area = inLeft ? 'left' : 'right';
+    areaSlots = inLeft ? slotsLeft : slotsRight;
   }
 
-  // dentro de carcasa: detectar slot
-  const inLeft  = plateMode === 'doble' &&
-    p.x >= DOUBLE_PLATE_LEFT.x && p.x <= DOUBLE_PLATE_LEFT.x + DOUBLE_PLATE_LEFT.w &&
-    p.y >= DOUBLE_PLATE_LEFT.y && p.y <= DOUBLE_PLATE_LEFT.y + DOUBLE_PLATE_LEFT.h;
-
-  const inRight = plateMode === 'doble' &&
-    p.x >= DOUBLE_PLATE_RIGHT.x && p.x <= DOUBLE_PLATE_RIGHT.x + DOUBLE_PLATE_RIGHT.w &&
-    p.y >= DOUBLE_PLATE_RIGHT.y && p.y <= DOUBLE_PLATE_RIGHT.y + DOUBLE_PLATE_RIGHT.h;
-
-  let areaSlots = [];
-  if (plateMode === 'sencilla') areaSlots = slotsSingle;
-  else if (inLeft)  areaSlots = slotsLeft;
-  else if (inRight) areaSlots = slotsRight;
-
+  // ¿Qué slot golpeó?
   const hitIdx = (areaSlots || []).findIndex(
     s => p.x >= s.x && p.x <= s.x + s.w && p.y >= s.y && p.y <= s.y + s.h
   );
 
-  if (hitIdx === -1) clearSelection();
-}, [plateMode, slotsSingle, slotsLeft, slotsRight, clearSelection, isInsideAnyPlate]);
+  if (hitIdx === -1) { clearSelection(); return; }
 
+  setActiveArea(area);
+  setActiveSlotIdx(hitIdx);
+}, [scale, plateMode, slotsSingle, slotsLeft, slotsRight, clearSelection]);
 
 
 // Reposicionar cuando cambian plantillas o color
@@ -624,18 +670,29 @@ useEffect(() => {
   }
 }, [plateMode, selectedSuiche]);
 
+const labelInputRef = useRef(null);
+const overlayInputRef = useRef(null);
 
 
-// ADD en DesignerCanvas (junto a tus handlers)
 const handleSelectIcon = (iconId) => {
-   const ic =
+  const ic =
     iconsSingle.find(i => i.id === iconId) ||
     iconsLeft.find(i => i.id === iconId) ||
     iconsRight.find(i => i.id === iconId);
+
   if (!ic) return;
+
   setSelectedIconId(iconId);
   setLabelInput(ic.label ?? '');
- };
+
+  // Dale un tick para que el input exista en el DOM y fócalo (gesto de usuario activo)
+  setTimeout(() => {
+    labelInputRef.current?.focus({ preventScroll: true });
+    // Opcional: selecciona todo el texto
+    try { labelInputRef.current?.setSelectionRange(0, (labelInputRef.current.value || '').length); } catch {}
+  }, 0);
+};
+
 
 const modalVariant = selectedColor?.toLowerCase() === '#ffffff' ? 'dark' : 'light';
 
@@ -650,6 +707,14 @@ useEffect(() => {
   setIconsRight(prev => swap(prev));
 }, [esFondoBlanco]); // o [selectedColor]
 
+const themeKey = selectedColor?.toLowerCase() === '#000000' ? 'dark' : 'light';
+
+useEffect(() => {
+  if (editingIconId && overlayInputRef.current) {
+    overlayInputRef.current.focus({ preventScroll: true });
+    try { overlayInputRef.current.setSelectionRange(0, overlayInputRef.current.value.length); } catch {}
+  }
+}, [editingIconId]);
 
   return (
     <div className={styles.contenedor}>
@@ -693,176 +758,33 @@ useEffect(() => {
 </div>
 
 <hr />
-<br />
-          <h4 className={styles.sectionTitle}>Estilos de suiche</h4>
-<div className={styles.suicheList}>
-  {Object.entries(dataSuiche).map(([key, value], i) => {
-    const extraClass = value.cssClass ? styles[value.cssClass] : '';
-    const isActive = selectedSuiche === value.image;
 
-    return (
-      <div key={key} className={styles.suicheItem} style={{ '--delay': `${i * 40}ms` }}>
-        <button
-         onClick={() => {
-  setSelectedSuiche(value.image);
-//  if (value.color) setSelectedColor(value.color);
+      <h4 className={styles.sectionTitle}>Estilo del suiche</h4>
+<button
+  type="button"
+  className={styles.previewButton2}
+  onClick={() => setSuicheModalOpen(true)}
+  aria-label="Elegir estilo de suiche"
+  title="Elegir estilo de suiche"
+>
+  <div className={styles.thumbStrip}>
+    {/* Mini preview del suiche actual */}
+    <img
+      src={selectedSuiche}
+      alt="Suiche seleccionado"
+      className={styles.thumbMini}
+      draggable={false}
+    />
+    {/* Debajo de la imagen del preview */}
+<span className={styles.previewCaption}>
+  {(Object.values(dataSuiche).find(s => s.image === selectedSuiche)?.label) || 'Suiche'}
+</span>
 
-  if (plateMode === 'doble') {
- //   const idx = i + 1; // i viene del .map(([key, value], i) => ...)
-    setSelectedCarcasaDoble(`/assets/carcasas doble/carcasa${i + 1}.png`); // ajusta ruta/extensión a tus assets
-  } 
-}}
+  </div>
+  <span className={styles.previewChevron} aria-hidden>›</span>
+</button>
 
-          className={`${styles.suicheButton} ${extraClass} ${isActive ? styles.active : ''}`}
-          style={!value.cssClass ? { backgroundColor: value.color } : {}}
-          title={value.label ?? key}
-        >
-          <div className={styles.suicheIcon} />
-        </button>
-        {value.label && <span className={styles.suicheLabel}>{value.label}</span>}
-      </div>
-    );
-  })}
-</div>
-
-
-
-
-
-         
-        </aside>
-
-        <main className={styles.mainArea}>
-           {/* Botón Reset Iconos */}
-
-          <div className={styles.workbench}>
-            
-            <div className={styles.canvasPane}>
-             <div ref={canvasHostRef} className={styles.canvasCard}>
- <Stage
-                  ref={stageRef}
-                  width={DESIGN_W}
-                  height={DESIGN_H}
-                  scale={{ x: scale, y: scale }}
-                  // Para que el lienzo visible no desborde:
-                  style={{ width: hostSize.w, height: hostSize.h }}
-                  onMouseDown={handleStageMouseDown}
-                  onTouchStart={handleStageMouseDown}
-                >
-  <Layer>
-    {/* Carcasa */}
-    {plateMode === 'sencilla' && carcasaSingle && (
-      <>
-        <KonvaImage image={carcasaSingle} x={200} y={40} width={785} height={785} />
-        <Rect
-          x={SINGLE_PLATE.x} y={SINGLE_PLATE.y}
-          width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
-          fill={selectedColor} cornerRadius={15}
-        />
-        {selectedPlantillaSingle !== '04' && plantillaSingle && (
-          <KonvaImage
-            image={plantillaSingle}
-            x={SINGLE_PLATE.x} y={SINGLE_PLATE.y}
-            width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
-          />
-        )}
-
-        {/* Slots + selección de slot */}
-    {slotsSingle.map((s, i) => (
-  <Rect
-    key={`single-${i}`}
-    x={s.x} y={s.y} width={s.w} height={s.h} cornerRadius={12}
-    listening
-    onClick={(e) => { e.cancelBubble = true; setActiveArea('single'); setActiveSlotIdx(i); }}
-    stroke={activeArea==='single' && i===activeSlotIdx ? '#0ea5e9' : undefined}
-    strokeWidth={activeArea==='single' && i===activeSlotIdx ? 2 : 0}
-    shadowBlur={activeArea==='single' && i===activeSlotIdx ? 6 : 0}
-  />
-))}
-
-        {iconsSingle.map(icon => (
-          <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
-        ))}
-      </>
-    )}
-
-    {plateMode === 'doble' && carcasaDoble && (
-      <>
-        <KonvaImage image={carcasaDoble} x={200} y={40} width={785} height={785} />
-
-        {/* IZQUIERDA */}
-        <Rect x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h} fill={selectedColor} cornerRadius={15}/>
-       {selectedPlantillaLeft !== '04' && plantillaLeft && (
-          <KonvaImage image={plantillaLeft} x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h}/>
-        )}
- {slotsLeft.map((s, i) => (
-  <Rect
-    key={`left-${i}`}
-    x={s.x} y={s.y} width={s.w} height={s.h} cornerRadius={12}
-    listening
-    onClick={(e) => { e.cancelBubble = true; setActiveArea('left'); setActiveSlotIdx(i); }}
-    stroke={activeArea==='left' && i===activeSlotIdx ? '#0ea5e9' : undefined}
-    strokeWidth={activeArea==='left' && i===activeSlotIdx ? 2 : 0}
-    shadowBlur={activeArea==='left' && i===activeSlotIdx ? 6 : 0}
-  />
-))}
-        {iconsLeft.map(icon => (
-          <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
-        ))}
-
-        {/* DERECHA */}
-        <Rect x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h} fill={selectedColor} cornerRadius={15}/>
-       {selectedPlantillaRight !== '04' && plantillaRight && (
-          <KonvaImage image={plantillaRight} x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h}/>
-        )}
-    {slotsRight.map((s, i) => (
-  <Rect
-    key={`right-${i}`}
-    x={s.x} y={s.y} width={s.w} height={s.h} cornerRadius={12}
-    listening
-    onClick={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(i); }}
-    stroke={activeArea==='right' && i===activeSlotIdx ? '#0ea5e9' : undefined}
-    strokeWidth={activeArea==='right' && i===activeSlotIdx ? 2 : 0}
-    shadowBlur={activeArea==='right' && i===activeSlotIdx ? 6 : 0}
-  />
-))}
-        {iconsRight.map(icon => (
-          <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
-        ))}
-      </>
-    )}
-  </Layer>
-</Stage>
-
-{editingIconId && (
-  <input
-    style={{
-      position: 'fixed',
-      top: editPos.y,
-      left: editPos.x,
-      width: editWidth,
-      fontSize: 14,
-      padding: '2px 4px',
-      border: '1px solid #ccc',
-      borderRadius: 4,
-      zIndex: 9999,          // <- más alto, por si hay headers con z-index
-      outline: 'none',
-      background: '#fff'
-    }}
-    value={editValue}
-    onChange={(e) => setEditValue(e.target.value)}
-    onBlur={handleSaveEdit}                   // guarda al salir
-    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(); }}
-    autoFocus
-  />
-)}
-    <div className={styles.contenedor2}>
-  
-
-
-
-  
-             {/* Toolbar de colores: swatches circulares */}
+    {/* Toolbar de colores: swatches circulares */}
                 <div className={styles.canvasToolbar}>
                     <span className={styles.toolbarLabel}>Color de fondo</span>
                   <div className={styles.toolbarGroup}>
@@ -929,33 +851,163 @@ useEffect(() => {
       />
     ))}
   </div>
-  <span className={styles.previewChevron} aria-hidden>›</span>
+ 
 </button>
-
-
-
 <div>
   
-  <span style={{ fontSize: 12, opacity: 0.8 }}>Texto del icono:</span>
 {selectedIconId && (
-  <div style={{ marginTop: 12, display: 'flex', gap: 7, alignItems: 'center' }}>
-    <input
-      value={labelInput}
-      onChange={(e) => setLabelInput(e.target.value)}
-      onKeyDown={(e) => { if (e.key === 'Enter') saveLabel(); }}
-      placeholder="Texto del icono…"
-      style={{ padding: '6px 8px', fontSize: 12, width: 130 }}
-      autoFocus
-    />
-    <button className={styles.smallButton} onClick={saveLabel}>Guardar</button>
+  <div style={{ marginTop: 12, display: 'flex', gap: 7, flexDirection :"column"}}>
+    <span style={{ fontSize: 12, opacity: 0.8 }}>Texto del icono:</span>
+<div> <input
+  ref={labelInputRef}
+  value={labelInput}
+  onChange={(e) => setLabelInput(e.target.value)}
+  onKeyDown={(e) => { if (e.key === 'Enter') saveLabel(); }}
+  placeholder="Texto del icono…"
+  style={{ padding: '6px 8px', fontSize: 16, width: 130 }} // <- 16px ayuda en iOS
+/>
+
+    <button className={styles.smallButton} onClick={saveLabel}>Guardar</button></div>
   </div>
 )}
 </div>
 
-</div>
- 
 
-     
+
+         
+        </aside>
+
+        <main className={styles.mainArea}>
+           {/* Botón Reset Iconos */}
+
+          <div className={styles.workbench}>
+            
+            <div className={styles.canvasPane}>
+             <div ref={canvasHostRef} className={styles.canvasCard}>
+<Stage
+  ref={stageRef}
+  width={DESIGN_W}
+  height={DESIGN_H}
+  scale={{ x: scale, y: scale }}
+  style={{ width: hostSize.w, height: hostSize.h, touchAction: 'none' }} // <- clave en iOS
+  onPointerDown={handleStagePointerDown}>
+
+  <Layer>
+    {/* Carcasa */}
+    {plateMode === 'sencilla' && carcasaSingle && (
+      <>
+        <KonvaImage image={carcasaSingle} x={200} y={40} width={785} height={785} className={styles.carcasa} />
+        <Rect
+          x={SINGLE_PLATE.x} y={SINGLE_PLATE.y}
+          width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
+          fill={selectedColor} cornerRadius={15}
+        />
+        {selectedPlantillaSingle !== '04' && plantillaSingle && (
+          <KonvaImage
+            image={plantillaSingle}
+            x={SINGLE_PLATE.x} y={SINGLE_PLATE.y}
+            width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
+          />
+        )}
+
+        {/* Slots + selección de slot */}
+    {slotsSingle.map((s, i) => (
+  <Rect
+    key={`single-${i}`}
+    x={s.x} y={s.y} width={s.w} height={s.h} cornerRadius={12}
+    listening
+    onClick={(e) => { e.cancelBubble = true; setActiveArea('single'); setActiveSlotIdx(i); }}
+      onTap={(e) => { e.cancelBubble = true; setActiveArea('single'); setActiveSlotIdx(i); }} // <- ADD
+
+    stroke={activeArea==='single' && i===activeSlotIdx ? '#0ea5e9' : undefined}
+    strokeWidth={activeArea==='single' && i===activeSlotIdx ? 2 : 0}
+    shadowBlur={activeArea==='single' && i===activeSlotIdx ? 6 : 0}
+  />
+))}
+
+        {iconsSingle.map(icon => (
+          <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
+        ))}
+      </>
+    )}
+
+    {plateMode === 'doble' && carcasaDoble && (
+      <>
+        <KonvaImage image={carcasaDoble} x={200} y={40} width={785} height={785} />
+
+        {/* IZQUIERDA */}
+        <Rect x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h} fill={selectedColor} cornerRadius={15}/>
+       {selectedPlantillaLeft !== '04' && plantillaLeft && (
+          <KonvaImage image={plantillaLeft} x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h}/>
+        )}
+ {slotsLeft.map((s, i) => (
+  <Rect
+    key={`left-${i}`}
+    x={s.x} y={s.y} width={s.w} height={s.h} cornerRadius={12}
+    listening
+    onClick={(e) => { e.cancelBubble = true; setActiveArea('left'); setActiveSlotIdx(i); }}
+onTap={(e) => { e.cancelBubble = true; setActiveArea('left'); setActiveSlotIdx(i); }}
+
+    stroke={activeArea==='left' && i===activeSlotIdx ? '#0ea5e9' : undefined}
+    strokeWidth={activeArea==='left' && i===activeSlotIdx ? 2 : 0}
+    shadowBlur={activeArea==='left' && i===activeSlotIdx ? 6 : 0}
+  />
+))}
+        {iconsLeft.map(icon => (
+          <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
+        ))}
+
+        {/* DERECHA */}
+        <Rect x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h} fill={selectedColor} cornerRadius={15}/>
+       {selectedPlantillaRight !== '04' && plantillaRight && (
+          <KonvaImage image={plantillaRight} x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h}/>
+        )}
+    {slotsRight.map((s, i) => (
+  <Rect
+    key={`right-${i}`}
+    x={s.x} y={s.y} width={s.w} height={s.h} cornerRadius={12}
+    listening
+// RIGHT (fix)
+onClick={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(i); }}
+onTap={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(i); }}
+
+
+    stroke={activeArea==='right' && i===activeSlotIdx ? '#0ea5e9' : undefined}
+    strokeWidth={activeArea==='right' && i===activeSlotIdx ? 2 : 0}
+    shadowBlur={activeArea==='right' && i===activeSlotIdx ? 6 : 0}
+  />
+))}
+        {iconsRight.map(icon => (
+          <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
+        ))}
+      </>
+    )}
+  </Layer>
+</Stage>
+
+{editingIconId && (
+  <input
+    ref={overlayInputRef}
+    style={{
+      position: 'fixed',
+      top: editPos.y,
+      left: editPos.x,
+      width: editWidth,
+      fontSize: 16,               // <- importante en iPad
+      padding: '2px 4px',
+      border: '1px solid #ccc',
+      borderRadius: 4,
+      zIndex: 9999,
+      outline: 'none',
+      background: '#fff'
+    }}
+    value={editValue}
+    onChange={(e) => setEditValue(e.target.value)}
+    onBlur={handleSaveEdit}
+    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(); }}
+  />
+)}
+
               </div>
 
 
@@ -966,28 +1018,42 @@ useEffect(() => {
       </div>
 
      <Modal title="Elegir plantilla" isOpen={isPlantillasModalOpen} onClose={() => setPlantillasModalOpen(false)}  variant={modalVariant}>
-  <div className={styles.plantillaGrid}>
-    {plantillaIds.map((id) => {
-      const src = getPlantillaPath(id);       
-      const isActive = selectedPlantilla === id;
-      return (
-        <button
-          key={id}
-        onClick={() => {
-  if (plateMode === 'sencilla') setSelectedPlantillaSingle(id);
-  else if (activeArea === 'left') setSelectedPlantillaLeft(id);
-  else if (activeArea === 'right') setSelectedPlantillaRight(id);
-  setPlantillasModalOpen(false);
-}}
 
-          className={`${styles.plantillaBtn} ${isActive ? styles.plantillaBtnActive : ''}`}
-          title={`Plantilla ${id}`}
-        >
-          <img src={src} alt={`Plantilla ${id}`} className={styles.plantillaThumb} />
-        </button>
-      );
-    })}
-  </div>
+
+<div className={styles.plantillaGrid}>
+  {plantillaIds.map((id) => {
+    const src = getPlantillaPath(id);
+
+    // activo según el área/placa actual
+    const isActive =
+      plateMode === 'sencilla'
+        ? selectedPlantillaSingle === id
+        : (activeArea === 'left' ? selectedPlantillaLeft === id : selectedPlantillaRight === id);
+
+    return (
+      <button
+        key={`${id}-${themeKey}`}
+        onClick={() => {
+          if (plateMode === 'sencilla') setSelectedPlantillaSingle(id);
+          else if (activeArea === 'left') setSelectedPlantillaLeft(id);
+          else if (activeArea === 'right') setSelectedPlantillaRight(id);
+          setPlantillasModalOpen(false);
+        }}
+        className={`${styles.plantillaBtn} ${isActive ? styles.plantillaBtnActive : ''}`}
+        title={`Plantilla ${id}`}
+      >
+        <img
+          src={src}
+          alt={`Plantilla ${id}`}
+          className={`${
+            themeKey === 'dark' ? styles.plantillaThumbDark : styles.plantillaThumbLight
+          }`}
+        />
+      </button>
+    );
+  })}
+</div>
+
 </Modal>
 
 
@@ -996,26 +1062,135 @@ useEffect(() => {
   title="Elegir iconos"
   isOpen={isIconsModalOpen}
   onClose={() => setIconsModalOpen(false)}
-  width={720}
+  width={780}
   variant={modalVariant}
 >
-  <div className={`${styles.iconGridSide} ${modalVariant === 'dark' ? styles.lightBody : styles.darkBody}`}>
-    {iconNumbers.map((num) => {
-      const label = num;
+  {/* Tabs de categorías */}
+  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+    {Object.keys(ICON_CATEGORIES).map((cat) => {
+      const active = selectedCategory === cat;
       return (
         <button
-          key={num}
-          onClick={() => { placeOrReplaceIcon(num, label); setIconsModalOpen(false); }}
-          className={styles.iconoButton}
-          title={`Icono ${num}`}
+          key={cat}
+          onClick={() => { setSelectedCategory(cat); setIconSearch(''); }}
+          className={`${styles.smallButton} ${active ? styles.active : ''}`}
+          style={{
+            padding: '6px 10px',
+            borderRadius: 999,
+            border: active ? '1px solid #0ea5e9' : '1px solid #ddd',
+            background: active ? '#e6f6fe' : (modalVariant === 'dark' ? '#111' : '#fff'),
+            color: modalVariant === 'dark' ? '#fff' : '#111'
+          }}
+          title={cat}
         >
-           <img src={getIconPath(num)} alt={`Icono ${num}`} className={styles.iconoMiniatura} />
-          <div className={styles.iconoMiniaturaTexto}>{label}</div>
+          {cat}
+        </button>
+      );
+    })}
+  </div>
+
+
+
+  {/* Grid de iconos filtrados */}
+  <div
+    className={`${styles.iconGridSide} ${
+      modalVariant === 'dark' ? styles.lightBody : styles.darkBody
+    }`}
+    style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(8, minmax(64px, 1fr))',
+      gap: 12,
+      alignItems: 'start'
+    }}
+  >
+    {(() => {
+      const baseList = selectedCategory === 'Todos'
+        ? iconNumbers
+        : (ICON_CATEGORIES[selectedCategory] || []);
+
+      const q = iconSearch.trim();
+      const filtered = q ? baseList.filter(num => num.includes(q)) : baseList;
+
+      if (!filtered.length) {
+        return (
+          <div style={{ gridColumn: '1 / -1', opacity: 0.7, fontSize: 14 }}>
+            Sin resultados en <b>{selectedCategory}</b>{q && <> para “{q}”</>}.
+          </div>
+        );
+      }
+
+      return filtered.map((num) => {
+        const label = num; // si más adelante usas metadatos, cambia esto
+        return (
+          <button
+            key={`${selectedCategory}-${num}`}
+            onClick={() => { placeOrReplaceIcon(num, label); setIconsModalOpen(false); }}
+            className={styles.iconoButton}
+            title={`Icono ${num}`}
+          >
+            <img
+              src={getIconPath(num)}
+              alt={`Icono ${num}`}
+              className={`${themeKey === 'dark' ? styles.iconoMiniaturaDark : styles.iconoMiniaturaLigh}`}
+              draggable={false}
+            />
+            <div className={styles.iconoMiniaturaTexto}>{label}</div>
+          </button>
+        );
+      });
+    })()}
+  </div>
+</Modal>
+
+
+<Modal
+  title="Elegir estilo de suiche"
+  isOpen={isSuicheModalOpen}
+  onClose={() => setSuicheModalOpen(false)}
+  width={780}
+  variant={modalVariant}
+>
+  <div
+    className={`${styles.suicheList} ${
+      modalVariant === 'dark' ? styles.lightBody : styles.darkBody
+    }`}
+    style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(72px, 1fr))', gap: 16 }}
+  >
+    {Object.entries(dataSuiche).map(([key, value], i) => {
+      const extraClass = value.cssClass ? styles[value.cssClass] : '';
+      const isActive = selectedSuiche === value.image;
+
+      return (
+        <button
+          key={key}
+          onClick={() => {
+            // Selecciona el suiche
+            setSelectedSuiche(value.image);
+
+            // Si tu flujo lo requiere, puedes forzar color de fondo según el suiche:
+            // if (value.color) setSelectedColor(value.color);
+
+            // Si está en modo doble, sincroniza la carcasa doble por índice
+            if (plateMode === 'doble') {
+              setSelectedCarcasaDoble(`/assets/carcasas doble/carcasa${i + 1}.png`);
+            }
+
+            setSuicheModalOpen(false);
+          }}
+          className={`${styles.suicheButton} ${extraClass} ${isActive ? styles.active : ''}`}
+          style={!value.cssClass ? { backgroundColor: value.color } : {}}
+          title={value.label ?? key}
+        >
+          {/* Vista del acabado */}
+          <div className={styles.suicheIcon} />
+          {/* Etiqueta */}
+          {value.label && <span className={styles.suicheLabel}>{value.label}</span>}
         </button>
       );
     })}
   </div>
 </Modal>
+
     </div>
   );
 };
