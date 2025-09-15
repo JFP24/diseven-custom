@@ -851,7 +851,7 @@ right: 200px;
 }
 
 /* 1366–1399.98 */
-@media (min-width: 1066px) and (max-width: 1599.98px) {
+@media (min-width: 1000px) and (max-width: 1599.98px) {
   .layout { grid-template-columns: minmax(260px, 300px) 1fr; }
   .mainArea { padding: 20px; }
   .sidebar {
