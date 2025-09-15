@@ -263,7 +263,7 @@ height: 0;
 .suicheLabel {
   margin-top: 6px;
   font-size: 12px;
-  color: #333;
+  color: #0a0a0a;
   text-align: center;
   line-height: 1.1;
   display: -webkit-box;
@@ -501,11 +501,20 @@ height: 0;
   padding: 20px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
- 
   color: #0f172a;
   font-size: 12px;
   cursor: pointer;
 }
+.smallButton2 {
+ 
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+
+  color: #0f172a;
+  font-size: 12px;
+  cursor: pointer;
+margin-left: 10px;}
 .smallButton:hover {
   filter: brightness(0.97);
 }

@@ -867,7 +867,7 @@ useEffect(() => {
   style={{ padding: '6px 8px', fontSize: 16, width: 130 }} // <- 16px ayuda en iOS
 />
 
-    <button className={styles.smallButton} onClick={saveLabel}>Guardar</button></div>
+    <button className={styles.smallButton2} onClick={saveLabel}>Guardar</button></div>
   </div>
 )}
 </div>
@@ -1095,13 +1095,8 @@ onTap={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(
   <div
     className={`${styles.iconGridSide} ${
       modalVariant === 'dark' ? styles.lightBody : styles.darkBody
-    }`}
-    style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(8, minmax(64px, 1fr))',
-      gap: 12,
-      alignItems: 'start'
-    }}
+    }`} 
+   
   >
     {(() => {
       const baseList = selectedCategory === 'Todos'
@@ -1154,7 +1149,7 @@ onTap={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(
     className={`${styles.suicheList} ${
       modalVariant === 'dark' ? styles.lightBody : styles.darkBody
     }`}
-    style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(72px, 1fr))', gap: 16 }}
+ 
   >
     {Object.entries(dataSuiche).map(([key, value], i) => {
       const extraClass = value.cssClass ? styles[value.cssClass] : '';
@@ -1182,9 +1177,8 @@ onTap={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(
           title={value.label ?? key}
         >
           {/* Vista del acabado */}
-          <div className={styles.suicheIcon} />
           {/* Etiqueta */}
-          {value.label && <span className={styles.suicheLabel}>{value.label}</span>}
+        {/* {value.label && <span className={styles.suicheLabel}>{value.label}</span>} */}
         </button>
       );
     })}
