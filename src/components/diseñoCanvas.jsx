@@ -75,9 +75,9 @@ const dataSuiche = {
   suiche16: { color: '#a4948e', image: '/assets/suichesSencillo/suiche16.png', label: 'Nickel' },
   suiche17: { color: '#D3D3D3', image: '/assets/suichesSencillo/suiche17.png', label: 'Silver' },
   suiche18: { color: '#504f4e', image: '/assets/suichesSencillo/suiche18.png', label: 'Space Gray' },
-  suiche19: { color: '#d4af37ff', image: '/assets/suichesSencillo/suiche19.png', label: 'Acrylic  Gold' },
-  suiche20: { color: '#d1a38aff', image: '/assets/suichesSencillo/suiche20.png', label: 'Acrylic Rose Gold' },
-  suiche21: { color: '#b1b1b1ff', image: '/assets/suichesSencillo/suiche21.png', label: 'Acrylic Silver' },
+  suiche19: { color: '#d4af37ff', image: '/assets/suichesSencillo/suiche19.png', label: 'Gold' },
+  suiche20: { color: '#d1a38aff', image: '/assets/suichesSencillo/suiche20.png', label: 'Rose Gold' },
+  suiche21: { color: '#b1b1b1ff', image: '/assets/suichesSencillo/suiche21.png', label: 'Silver' },
 
 };
 
