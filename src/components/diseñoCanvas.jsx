@@ -1162,10 +1162,7 @@ onTap={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(
             // Selecciona el suiche
             setSelectedSuiche(value.image);
 
-            // Si tu flujo lo requiere, puedes forzar color de fondo según el suiche:
-            // if (value.color) setSelectedColor(value.color);
-
-            // Si está en modo doble, sincroniza la carcasa doble por índice
+ 
             if (plateMode === 'doble') {
               setSelectedCarcasaDoble(`/assets/carcasas doble/carcasa${i + 1}.png`);
             }
@@ -1178,7 +1175,7 @@ onTap={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(
         >
           {/* Vista del acabado */}
           {/* Etiqueta */}
-        {/* {value.label && <span className={styles.suicheLabel}>{value.label}</span>} */}
+        {value.label && <span className={styles.suicheLabel}>{value.label}</span>}
         </button>
       );
     })}
