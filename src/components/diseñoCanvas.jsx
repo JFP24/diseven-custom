@@ -12,11 +12,12 @@ const IconWithLabel = ({
   x, y, size, src, label, isWhite, glowOn = true,
   glowBlur = 18, glowOpacity = 0.45, onSelect // <- NUEVO
 }) => {
+
+  console.log(size)
   const [iconImg] = useImage(src);
   if (!iconImg) return null;
 
-  const fontSize = Math.min(14, Math.max(12, Math.round(size * 0.22)));
-  const labelGap = 6;
+  const fontSize = Math.min(14, Math.max(12, Math.round(size * .22)));
 
   return (
     <Group
@@ -29,23 +30,19 @@ const IconWithLabel = ({
       <KonvaImage
         image={iconImg}
         width={size}
-        height={size}
-        shadowOpacity={glowOpacity}
-        shadowOffset={{ x: 0, y: 0 }}
+        height={size }
+        //shadowOpacity={glowOpacity}
+     //   shadowOffset={{ x: 0, y: 0 }}
       />
       <Text
         x={0}
-        y={size + labelGap}
+        y={size }
         width={size}
         text={label ?? ''}
         fontSize={fontSize}
         fill={isWhite ? '#FFFFFF' : '#000000ff'}
         align="center"
-        opacity={1}
-        shadowEnabled={glowOn}
-        shadowBlur={Math.round(glowBlur * 0.6)}
-        shadowOpacity={Math.min(1, glowOpacity * 0.8)}
-        shadowOffset={{ x: 0, y: 0 }}
+      
       />
     </Group>
   );
@@ -222,10 +219,6 @@ const DOUBLE_PLATE_LEFT  = { x: 360, y: 235, w: 205, h: 395 };
 const DOUBLE_PLATE_RIGHT = { x: 620, y: 235, w: 205, h: 395 };
 
 
-const isInsidePlate = (x, y) =>
-  x >= PL_X && x <= PL_X + PL_W && y >= PL_Y && y <= PL_Y + PL_H;
-
-
 
 const getSlotsFor = (filename) => {
   const slots = PLANTILLA_SLOTS[filename] || [];
@@ -353,38 +346,74 @@ const PREVIEW_ICONOS = getCategoryList(selectedCategory).slice(0, 3);
 
 
 
-  const [selectedPlantilla, setSelectedPlantilla] = useState('04');
-  const [selectedSuiche, setSelectedSuiche] = useState(dataSuiche.suiche4.image);
-  const [selectedColor, setSelectedColor] = useState('#000000');
-  console.log(selectedColor)
+const [selectedPlantilla, setSelectedPlantilla] = useState('04');
+const [selectedSuiche, setSelectedSuiche] = useState(dataSuiche.suiche4.image);
+const [selectedColor, setSelectedColor] = useState('#000000');
+
+
+// Paso 1: pedir nombre del proyecto
+const [isProjectNameModalOpen, setProjectNameModalOpen] = useState(false);
+const [projectName, setProjectName] = useState('');
+
+
+
+
+ // console.log(selectedColor)
 useEffect(() => {
   if (selectedColor !== '#FFFFFF' && selectedColor !== '#000000') {
     setSelectedColor('#000000');
   }
 }, [selectedColor]);
 
-  const [isIconsModalOpen, setIconsModalOpen] = useState(false);
-  const [isPlantillasModalOpen, setPlantillasModalOpen] = useState(false);
+const [isIconsModalOpen, setIconsModalOpen] = useState(false);
+const [isPlantillasModalOpen, setPlantillasModalOpen] = useState(false);
 
-  const [isEditingLabel, setIsEditingLabel] = useState(false);
-  const [labelInput, setLabelInput] = useState('');
+const [isEditingLabel, setIsEditingLabel] = useState(false);
+const [labelInput, setLabelInput] = useState('');
 
-  const esFondoNegro = selectedColor?.toLowerCase() === '#000000';
-  const esFondoBlanco = !esFondoNegro;
+const esFondoNegro = selectedColor?.toLowerCase() === '#000000';
+const esFondoBlanco = !esFondoNegro;
 // --- estados base (deja esto ANTES de cualquier uso) ---
 const [plateMode, setPlateMode] = useState('sencilla');
 const [selectedCarcasaDoble, setSelectedCarcasaDoble] = useState('/assets/carcasas doble/carcasa1.png');
+
 
 const [selectedPlantillaSingle, setSelectedPlantillaSingle] = useState('04');
 const [selectedPlantillaLeft,  setSelectedPlantillaLeft]  = useState('04');
 const [selectedPlantillaRight, setSelectedPlantillaRight] = useState('04');
 
+
 const [iconsSingle, setIconsSingle] = useState([]);
 const [iconsLeft,   setIconsLeft]   = useState([]);
 const [iconsRight,  setIconsRight]  = useState([]);
 
+
 const [activeArea, setActiveArea] = useState('single');
 const [activeSlotIdx, setActiveSlotIdx] = useState(null);
+
+// Guardados (lista plana y agrupada)
+const [savedList, setSavedList] = useState([]);
+const [projectGroups, setProjectGroups] = useState(new Map());
+
+// UI de proyectos
+const [isProjectsModalOpen, setProjectsModalOpen] = useState(false);
+const [selectedProjectName, setSelectedProjectName] = useState(null);
+// === cerca de tus helpers de storage (junto a loadTemplates/saveTemplates) ===
+const loadSavedList = () => loadTemplates();
+const refreshSaved = () => {
+  const list = loadSavedList(); // ahora es loadTemplates()
+  setSavedList(list);
+  setProjectGroups(groupByProject(list));
+};
+
+// ¿Qué registro (plantilla) está cargado/siendo editado?
+const [currentRecordId, setCurrentRecordId] = useState(null);
+const [currentProjectBadge, setCurrentProjectBadge] = useState({ id: null, name: "", place: "" });
+
+// Modo de guardado en el modal: 'update' o 'new'
+const [saveMode, setSaveMode] = useState('update');
+
+useEffect(() => { refreshSaved(); }, []);
 
  // Plantilla por área (respeta fondo negro/blanco)
 const getPlantillaPath = (id) =>
@@ -404,6 +433,49 @@ const slotsSingle = getSlotsForArea(SINGLE_PLATE, selectedPlantillaSingle) || []
 const slotsLeft   = getSlotsForArea(DOUBLE_PLATE_LEFT,  selectedPlantillaLeft) || [];
 const slotsRight  = getSlotsForArea(DOUBLE_PLATE_RIGHT, selectedPlantillaRight) || [];
 
+// Referencia al último snapshot guardado/cargado para comparar
+const lastSavedSnapshotRef = useRef(null);
+// Flag de cambios sin guardar
+const [isDirty, setIsDirty] = useState(false);
+
+// Normaliza snapshot (sin campos volátiles)
+const normalizeSnapshot = (snap) => {
+  if (!snap) return null;
+  const { meta, ...rest } = snap; // quitamos meta.createdAt
+  return JSON.stringify(rest);
+};
+
+// Llamar esto cuando cargues un record o termines de guardar
+const anchorCurrentAsClean = () => {
+  const snap = buildTemplateSnapshot({
+    projectName: currentProjectBadge.name || selectedProjectName || "",
+    placeName: currentProjectBadge.place || labelInput || "",
+  });
+  lastSavedSnapshotRef.current = normalizeSnapshot(snap);
+  setIsDirty(false);
+};
+// Detecta cambios para activar isDirty (si hay un record cargado)
+useEffect(() => {
+  if (!currentRecordId) { setIsDirty(false); return; }
+  const snap = buildTemplateSnapshot({
+    projectName: currentProjectBadge.name || selectedProjectName || "",
+    placeName: currentProjectBadge.place || labelInput || "",
+  });
+  const now = normalizeSnapshot(snap);
+  const last = lastSavedSnapshotRef.current;
+  setIsDirty(last ? now !== last : true);
+}, [
+  currentRecordId,
+  plateMode,
+  selectedColor,
+  selectedSuiche,
+  selectedCarcasaDoble,
+  selectedPlantillaSingle, selectedPlantillaLeft, selectedPlantillaRight,
+  // cambios en iconos
+  iconsSingle, iconsLeft, iconsRight,
+  // por si cambia el "place" mientras editas el texto del icono activo
+  labelInput
+]);
 
 
   const slots = getSlotsFor(getSlotsKey(selectedPlantilla));
@@ -414,22 +486,438 @@ const slotsRight  = getSlotsForArea(DOUBLE_PLATE_RIGHT, selectedPlantillaRight) 
 
 const [editingIconId, setEditingIconId] = useState(null);
 const [editValue, setEditValue] = useState('');
+
+
 const [editPos, setEditPos] = useState({ x: 0, y: 0 });
 const [editWidth, setEditWidth] = useState(0);
 
 
 const [isSuicheModalOpen, setSuicheModalOpen] = useState(false);
 
+// Paso 2: guardar plantilla (ya existente)
+const [isSaveAskOpen, setSaveAskOpen] = useState(false);
+
+// const handleSaveTemplateClick = () => {
+//   // Primer paso: pide nombre del proyecto
+//   setProjectNameModalOpen(true);
+// };
+
+// ===== PROYECTOS =====
+const [projects, setProjects] = useState([]);
+const [isSelectProjectOpen, setSelectProjectOpen] = useState(false);
+const [selectedProjectId, setSelectedProjectId] = useState(null);
+
+// UI de proyectos (viewer)
+const [viewProjectId, setViewProjectId] = useState(null);
+
+// para crear uno nuevo directamente desde el modal
+const [newProjectName, setNewProjectName] = useState("");
+
+// cargar/refresh proyectos
+const refreshProjects = () => setProjects(loadProjects());
+useEffect(() => { refreshProjects(); }, []);
+
+const handleSaveTemplateClick = () => {
+  // Si vienes editando un registro, por defecto ofrece "Actualizar"
+  setSaveMode(currentRecordId ? 'update' : 'new');
+
+  setSelectedProjectId(currentRecordId ? currentProjectBadge.id : null);
+  setSelectedProjectName(currentRecordId ? currentProjectBadge.name : "");
+  setNewProjectName("");
+  setSelectProjectOpen(true);
+};
 
 
-const resetArea = (area) => {
-  if (area === 'single') { setIconsSingle([]); setActiveArea('single'); }
-  if (area === 'left')   { setIconsLeft([]);   setActiveArea('left'); }
-  if (area === 'right')  { setIconsRight([]);  setActiveArea('right'); }
+
+// --- Helpers de guardado temporal (front-only) ---
+const sanitize = (s = "") =>
+  s.trim().toLowerCase()
+   .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+   .replace(/[^a-z0-9-_]+/g, "-")
+   .replace(/-+/g, "-")
+   .replace(/^-|-$/g, "") || "sin-nombre";
+
+
+
+const buildTemplateSnapshot = ({ projectName, placeName }) => {
+  const base = {
+    meta: {
+      projectName,
+      placeName,
+      createdAt: new Date().toISOString(),
+      version: "v1",
+    },
+    plateMode,                  // 'sencilla' | 'doble'
+    theme: selectedColor,       // '#000000' | '#FFFFFF'
+    suiche: selectedSuiche,     // imagen seleccionada
+  };
+
+  if (plateMode === "sencilla") {
+    return {
+      ...base,
+      areas: {
+        single: {
+          plantillaId: selectedPlantillaSingle,
+          icons: iconsSingle.map(({ num, label, slotIdx }) => ({ num, label, slotIdx })),
+        }
+      }
+    };
+  }
+
+  return {
+    ...base,
+    carcasaDoble: selectedCarcasaDoble,
+    areas: {
+      left: {
+        plantillaId: selectedPlantillaLeft,
+        icons: iconsLeft.map(({ num, label, slotIdx }) => ({ num, label, slotIdx })),
+      },
+      right: {
+        plantillaId: selectedPlantillaRight,
+        icons: iconsRight.map(({ num, label, slotIdx }) => ({ num, label, slotIdx })),
+      },
+    },
+  };
+};
+const saveTemplateNow = () => {
+  const projectId   = selectedProjectId;
+  const project     = (selectedProjectName || "").trim();
+  const place       = (labelInput || "").trim();
+
+  if (!projectId || !project) { alert("Primero selecciona o crea un proyecto"); return; }
+  if (!place) { alert("Escribe el nombre del lugar"); return; }
+
+  const snapshot = buildTemplateSnapshot({ projectName: project, placeName: place });
+
+
+
+  const ts = new Date();
+  const stamp = `${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,"0")}${String(ts.getDate()).padStart(2,"0")}_${String(ts.getHours()).padStart(2,"0")}${String(ts.getMinutes()).padStart(2,"0")}`;
+  const baseName = `${sanitize(project)}_${sanitize(place)}_${stamp}`;
+
+  // Descargar JSON (opcional)
+//  downloadText(`plantilla_${baseName}.json`, json);
+
+  // Preview comprimida
+  const png = captureStagePreview?.() || null;
+
+  if (saveMode === 'update' && currentRecordId) {
+
+    const ok = updateTemplateRecord(currentRecordId, {
+      projectId,
+      projectName: project,
+      placeName: place,
+      savedAt: new Date().toISOString(),
+      plateMode,
+      preview: png,
+      snapshot,
+      files: {
+        jsonName: `plantilla_${baseName}.json`,
+        pngName: `preview_${baseName}.jpg`
+      }
+    });
+    if (!ok) {
+      alert("No se encontró el registro a actualizar. Se guardará como nuevo.");
+    } else {
+      // sincroniza badge
+      setCurrentProjectBadge({ id: projectId, name: project, place });
+      refreshSaved();
+      setSaveAskOpen(false);
+      return;
+    }
+  }
+
+// es la plantilla nueva
+  const record = {
+    id: crypto.randomUUID(),
+    projectId,
+    projectName: project,
+    placeName: place,
+    savedAt: new Date().toISOString(),
+    plateMode,
+    preview: png,
+    snapshot,
+
+  };
+  persistTemplateRecord(record);
+  refreshSaved();
+
+  // si el usuario eligió "guardar como nueva" mientras editaba otra, ponemos esta como activa
+  setCurrentRecordId(record.id);
+  setCurrentProjectBadge({ id: projectId, name: project, place });
+
+  setSaveAskOpen(false);
+};
+
+const applySnapshot = (snap) => {
+  // tema y suiche
+  setSelectedColor(snap.theme || '#000000');
+  setSelectedSuiche(snap.suiche || dataSuiche.suiche4.image);
+  if (snap.plateMode === 'doble' && snap.carcasaDoble) {
+    setSelectedCarcasaDoble(snap.carcasaDoble);
+  }
+
+  // modo placa
+  setPlateMode(snap.plateMode || 'sencilla');
+
+  // plantillas por área
+  if (snap.plateMode === 'sencilla') {
+    setSelectedPlantillaSingle(snap?.areas?.single?.plantillaId || '04');
+    setIconsSingle(
+      (snap?.areas?.single?.icons || []).map(({ num, label, slotIdx }) => {
+        const slots = getSlotsForArea(SINGLE_PLATE, snap?.areas?.single?.plantillaId || '04');
+        const s = slots[slotIdx] || slots[0] || { x: PL_X, y: PL_Y, w: PL_W, h: PL_H };
+        const { x, y, size } = layoutIconInSlot(s, true);
+        return { id: crypto.randomUUID(), num, src: getIconPath(num), label, slotIdx, x, y, size };
+      })
+    );
+    setIconsLeft([]); setIconsRight([]);
+  } else {
+    setSelectedPlantillaLeft(snap?.areas?.left?.plantillaId || '04');
+    setSelectedPlantillaRight(snap?.areas?.right?.plantillaId || '04');
+
+    setIconsLeft(
+      (snap?.areas?.left?.icons || []).map(({ num, label, slotIdx }) => {
+        const slots = getSlotsForArea(DOUBLE_PLATE_LEFT, snap?.areas?.left?.plantillaId || '04');
+        const s = slots[slotIdx] || slots[0] || DOUBLE_PLATE_LEFT;
+        const { x, y, size } = layoutIconInSlot(s, true);
+        return { id: crypto.randomUUID(), num, src: getIconPath(num), label, slotIdx, x, y, size };
+      })
+    );
+
+    setIconsRight(
+      (snap?.areas?.right?.icons || []).map(({ num, label, slotIdx }) => {
+        const slots = getSlotsForArea(DOUBLE_PLATE_RIGHT, snap?.areas?.right?.plantillaId || '04');
+        const s = slots[slotIdx] || slots[0] || DOUBLE_PLATE_RIGHT;
+        const { x, y, size } = layoutIconInSlot(s, true);
+        return { id: crypto.randomUUID(), num, src: getIconPath(num), label, slotIdx, x, y, size };
+      })
+    );
+  }
+
+  setActiveArea('single');
   setActiveSlotIdx(null);
   setSelectedIconId(null);
-  setEditingIconId(null);
+  // ancla estado como "sin cambios" tras cargar
+setTimeout(() => {
+  setCurrentRecordId(currentRecordId => currentRecordId); // noop para asegurar orden
+  // usa el badge que acabas de setear/cargar
+  anchorCurrentAsClean();
+}, 0);
+
 };
+
+
+const updateTemplateRecord = (id, patch) => {
+  const list = loadTemplates();
+  const idx = list.findIndex(r => r.id === id);
+  if (idx === -1) return false;
+  list[idx] = { ...list[idx], ...patch };
+  saveTemplates(list);
+  return true;
+};
+
+const deleteRecord = (id) => {
+  const list = loadTemplates().filter(r => r.id !== id);
+  saveTemplates(list);
+};
+const STORAGE_KEY = "diseven:plantillas";
+
+const groupByProject = (list) => {
+  const map = new Map();
+  for (const r of list) {
+    const name = r.projectName || "Sin proyecto";
+    if (!map.has(name)) map.set(name, []);
+    map.get(name).push(r);
+  }
+  // ordenar items por fecha desc
+  for (const [k, arr] of map.entries()) {
+    arr.sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt));
+  }
+  return map; // Map<projectName, records[]>
+};
+// ====== STORAGE KEYS
+const PROJECTS_KEY = "diseven:projects";
+const TEMPLATES_KEY = "diseven:plantillas";
+
+// ====== PROJECTS helpers
+const loadProjects = () => {
+  try { return JSON.parse(localStorage.getItem(PROJECTS_KEY) || "[]"); }
+  catch { return []; }
+};
+
+const saveProjects = (arr) => {
+  localStorage.setItem(PROJECTS_KEY, JSON.stringify(arr));
+};
+
+const createProject = (name) => {
+  const list = loadProjects();
+  const p = { id: crypto.randomUUID(), name: name.trim(), createdAt: new Date().toISOString() };
+  list.push(p);
+  saveProjects(list);
+  return p;
+};
+
+const renameProject = (id, newName) => {
+  const list = loadProjects().map(p => p.id === id ? { ...p, name: newName.trim() } : p);
+  saveProjects(list);
+};
+
+const deleteProject = (id) => {
+  // borra el proyecto...
+  const projects = loadProjects().filter(p => p.id !== id);
+  saveProjects(projects);
+  // ...y sus plantillas asociadas
+  const tpls = loadTemplates().filter(r => r.projectId !== id);
+  saveTemplates(tpls);
+};
+
+// ====== TEMPLATES helpers
+const loadTemplates = () => {
+  try { return JSON.parse(localStorage.getItem(TEMPLATES_KEY) || "[]"); }
+  catch { return []; }
+};
+
+const saveTemplates = (arr) => {
+  // puede lanzar QuotaExceededError; lo manejamos arriba
+  localStorage.setItem(TEMPLATES_KEY, JSON.stringify(arr));
+};
+
+
+
+const persistTemplateRecord = (record) => {
+  let list = loadTemplates();
+  list.push(record);
+
+  try {
+    saveTemplates(list);
+    return;
+  } catch (e1) {
+    if (e1?.name !== 'QuotaExceededError') throw e1;
+  }
+
+  // reintenta sin la preview del NUEVO
+  list[list.length - 1] = { ...record, preview: null };
+  try {
+    saveTemplates(list);
+    return;
+  } catch (e2) {
+    if (e2?.name !== 'QuotaExceededError') throw e2;
+  }
+
+  // quita previews de TODOS y reintenta
+  list = list.map(r => ({ ...r, preview: null }));
+  try {
+    saveTemplates(list);
+    return;
+  } catch (e3) {
+    if (e3?.name !== 'QuotaExceededError') throw e3;
+  }
+
+  // borra los más antiguos hasta que entre
+  // (mantén siempre el último que estamos guardando)
+  let i = 0;
+  while (i < list.length - 1) { // deja el último
+    list.splice(i, 1); // elimina el más antiguo (posición 0 repetidamente)
+    try {
+      saveTemplates(list);
+      return;
+    } catch (e4) {
+      if (e4?.name !== 'QuotaExceededError') throw e4;
+      // sigue podando
+    }
+  }
+
+  // Si llegamos acá, no se pudo guardar ni siquiera con 1 elemento sin preview
+  alert("No se pudo guardar la plantilla por límite de almacenamiento del navegador.");
+};
+
+
+// persistir un record (plantilla) referenciando un proyecto
+
+
+// --- Previsualización PNG del Stage ---
+const [isPreviewOpen, setPreviewOpen] = useState(false);
+const [previewUrl, setPreviewUrl] = useState(null);
+  const stageRef = useRef(null);
+// Rectángulo exacto de la carcasa dibujada (sencilla y doble usan el mismo)
+// Caja exacta donde dibujas la carcasa
+const CARCASA_RECT = { x: 200, y: 50, w: 795, h: 795 };
+
+// Pads (puedes ajustar a gusto)
+const PAD_LEFT   = 0;
+const PAD_TOP    = 0;
+const PAD_RIGHT  = 0;
+const PAD_BOTTOM = 50; // <- un poco más abajo
+
+const getExportRect = () => ({
+  x: CARCASA_RECT.x - PAD_LEFT,
+  y: CARCASA_RECT.y - PAD_TOP,
+  w: CARCASA_RECT.w + PAD_LEFT + PAD_RIGHT,
+  h: CARCASA_RECT.h + PAD_TOP + PAD_BOTTOM,
+});
+
+
+
+// === Preview para guardar (PNG liviano, fondo transparente) ===
+const captureStagePreview = () => {
+  if (!stageRef.current) return null;
+  try {
+    const rect = getExportRect();
+    return stageRef.current.toDataURL({
+      mimeType: "image/png",
+      pixelRatio: 1,
+      x: rect.x,
+      y: rect.y,
+      width: rect.w,
+      height: rect.h,
+    });
+  } catch (err) {
+    console.error("Error al capturar preview:", err);
+    return null;
+  }
+};
+
+// === Descarga PNG (igual recorte pero más nítido) ===
+const captureStagePNG = () => {
+  if (!stageRef.current) return null;
+  try {
+    const rect = getExportRect();
+    return stageRef.current.toDataURL({
+      mimeType: "image/png",
+      pixelRatio: 2, // un poco más de nitidez para descarga
+      x: rect.x,
+      y: rect.y,
+      width: rect.w,
+      height: rect.h,
+    });
+  } catch (err) {
+    console.error("Error al capturar PNG:", err);
+    return null;
+  }
+};
+
+
+
+
+
+const openPreview = () => {
+  const uri = captureStagePreview(); // ← antes usabas captureStagePNG()
+  if (!uri) return;
+  setPreviewUrl(uri);
+  setPreviewOpen(true);
+};
+
+// //descarga la imagen del png 
+const downloadPNG = () => {
+  const uri = captureStagePNG();
+  if (!uri) return;
+  const a = document.createElement('a');
+  a.href = uri;
+  a.download = 'plantilla_preview.png';
+  a.click();
+};
+
 
 
 const resetAll = () => {
@@ -541,7 +1029,7 @@ useEffect(() => {
 // Al cambiar de modo, limpia selección
 useEffect(() => { setActiveSlotIdx(null); setSelectedIconId(null); }, [plateMode]);
 
-  const stageRef = useRef(null);
+
 
   const getIconPath = (num) => (
     esFondoBlanco
@@ -715,15 +1203,591 @@ useEffect(() => {
     try { overlayInputRef.current.setSelectionRange(0, overlayInputRef.current.value.length); } catch {}
   }
 }, [editingIconId]);
+// Guardado rápido "Actualizar" sin modales (usa proyecto/lugar actuales)
+const saveQuickUpdate = () => {
+  if (!currentRecordId) return;
+  const project = currentProjectBadge.name || selectedProjectName || "";
+  const place   = currentProjectBadge.place || labelInput || "";
+  if (!project || !place) {
+    alert("Falta proyecto o nombre del lugar para actualizar.");
+    return;
+  }
+
+  const snapshot = buildTemplateSnapshot({ projectName: project, placeName: place });
+  const png = captureStagePreview?.() || null;
+
+  const ok = updateTemplateRecord(currentRecordId, {
+    projectId: currentProjectBadge.id || selectedProjectId,
+    projectName: project,
+    placeName: place,
+    savedAt: new Date().toISOString(),
+    plateMode,
+    preview: png,
+    snapshot
+  });
+  if (!ok) {
+    alert("No se pudo actualizar el registro. Intenta 'Guardar como nuevo'.");
+    return;
+  }
+  refreshSaved();
+  anchorCurrentAsClean();
+};
+
+
+const resetSwitch = () => {
+  setPlateMode('sencilla');
+  setSelectedSuiche(dataSuiche.suiche4.image);               // suiche por defecto
+  setSelectedCarcasaDoble('/assets/carcasas doble/carcasa1.png');
+  setSelectedColor('#000000');                                // fondo por defecto
+  setSelectedPlantillaSingle('04');
+  setSelectedPlantillaLeft('04');
+  setSelectedPlantillaRight('04');
+  resetAll();
+  setActiveArea('single');
+  setActiveSlotIdx(null);
+};
 
   return (
     <div className={styles.contenedor}>
-        {/* <div className={styles.header}>
-        <img
-          src={"https://developer-appv2.s3.us-east-1.amazonaws.com/icons/casa-hogar-home-cabaña-exterior.gif"}
-          className={styles.casaR}
+      
+
+<div className={styles.contendor3}>
+  <button className={styles.smallButton2} onClick={handleSaveTemplateClick}>
+    Guardar plantilla
+  </button>
+
+  <button className={styles.smallButton2} onClick={openPreview} title="Ver imagen de la plantilla">
+    Ver previa
+  </button>
+<button
+  className={styles.smallButton2}
+  onClick={() => { 
+    refreshProjects(); 
+    refreshSaved(); 
+    setViewProjectId(null); 
+    setProjectsModalOpen(true); 
+  }}
+>
+  Ver proyecto
+</button>
+
+<button
+  type="button"
+  className={styles.smallButton2}
+  onClick={resetSwitch}
+  title="Reiniciar suiche"
+>
+  Reset suiche
+</button>
+
+{currentRecordId && (
+  <div className={styles.editBar}>
+    <div className={styles.editBadge}>
+      <span style={{ fontWeight: 600 }}>
+        {currentProjectBadge.name || 'Proyecto'}
+      </span> 
+      <span>•</span>
+      <span>{currentProjectBadge.place || 'Lugar'}</span>
+      {isDirty && <span className={styles.dotDirty} title="Cambios sin guardar" />}
+    </div>
+
+    <div className={styles.editActions}>
+      <button
+        className={styles.smallButton2}
+        onClick={saveQuickUpdate}
+        disabled={!isDirty}
+        title={isDirty ? "Guardar cambios" : "Sin cambios"}
+      >
+        Guardar cambios
+      </button>
+
+
+
+      <button
+        className={styles.smallButton2}
+        onClick={() => {
+          if (!isDirty || confirm("Descartar cambios no guardados?")) {
+            const rec = loadTemplates().find(r => r.id === currentRecordId);
+            if (rec?.snapshot) applySnapshot(rec.snapshot);
+            anchorCurrentAsClean();
+          }
+        }}
+        title="Descartar cambios"
+      >
+        Descartar
+      </button>
+
+      <button
+        className={styles.smallButton2}
+        onClick={() => {
+          if (!isDirty || confirm("Tienes cambios sin guardar. ¿Salir de edición?")) {
+            setCurrentRecordId(null);
+            setCurrentProjectBadge({id:null,name:"",place:""});
+            setIsDirty(false);
+          }
+        }}
+        title="Salir del modo edición"
+      >
+        Salir de edición
+      </button>
+    </div>
+  </div>
+)}
+
+</div>
+
+
+
+
+<Modal
+  title="Selecciona o crea un proyecto"
+  isOpen={isSelectProjectOpen}
+  onClose={() => setSelectProjectOpen(false)}
+  width={600}
+  variant={modalVariant}
+>
+  <div style={{ display: 'grid', gap: 12 , color : "black"}}>
+    <div style={{ fontSize: 14, opacity: .8 }}>
+      1) Elige un proyecto existente o crea uno nuevo.
+    </div>
+
+    {/* Lista de proyectos existentes */}
+    <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid rgba(0,0,0,.1)', borderRadius: 8, padding: 8 }}>
+      {projects.length === 0 ? (
+        <div style={{ fontSize: 13, opacity: .7 }}>Aún no hay proyectos.</div>
+      ) : projects.map(p => (
+        <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', cursor: 'pointer' }}>
+          <input
+            type="radio"
+            name="proj"
+            checked={selectedProjectId === p.id}
+            onChange={() => { setSelectedProjectId(p.id); setSelectedProjectName(p.name); }}
+          />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600 }}>{p.name}</div>
+            <div style={{ fontSize: 12, opacity: .6 }}>{new Date(p.createdAt).toLocaleString()}</div>
+          </div>
+          {/* Acciones rápidas opcionales */}
+          <button
+            className={styles.smallButton2}
+            onClick={(e) => {
+              e.preventDefault();
+              const nn = prompt("Renombrar proyecto:", p.name);
+              if (nn && nn.trim()) {
+                renameProject(p.id, nn);
+                refreshProjects();
+                if (selectedProjectId === p.id) setSelectedProjectName(nn.trim());
+              }
+            }}
+          >
+            Renombrar
+          </button>
+          <button
+            className={styles.smallButton2}
+            onClick={(e) => {
+              e.preventDefault();
+              if (confirm("¿Eliminar este proyecto y sus plantillas?")) {
+                deleteProject(p.id);
+                refreshProjects();
+                refreshSaved();
+                if (selectedProjectId === p.id) { setSelectedProjectId(null); setSelectedProjectName(""); }
+              }
+            }}
+            style={{ borderColor: '#ef4444', color: '#ef4444' }}
+          >
+            Eliminar
+          </button>
+        </label>
+      ))}
+    </div>
+
+    {/* Crear proyecto nuevo */}
+    <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+      <div style={{ fontSize: 14, opacity: .8 }}>O crea uno nuevo:</div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          type="text"
+          placeholder="Nombre del nuevo proyecto"
+          value={newProjectName}
+          onChange={(e) => setNewProjectName(e.target.value)}
+          style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid #ccc' }}
         />
-        </div> */}
+        <button
+          className={styles.smallButton}
+          onClick={() => {
+            if (!newProjectName.trim()) return alert("Escribe un nombre de proyecto");
+            const p = createProject(newProjectName);
+            refreshProjects();
+            setSelectedProjectId(p.id);
+            setSelectedProjectName(p.name);
+            setNewProjectName("");
+          }}
+        >
+          Crear
+        </button>
+      </div>
+    </div>
+
+    {/* Continuar al paso 2: poner nombre del lugar y guardar */}
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 , color :"black" }}>
+      <button className={styles.smallButton2} onClick={() => setSelectProjectOpen(false)}>Cancelar</button>
+      <button
+        className={styles.smallButton}
+        onClick={() => {
+          if (!selectedProjectId) return alert("Selecciona o crea un proyecto");
+          setSelectProjectOpen(false);
+          setLabelInput(""); 
+          setSaveAskOpen(true); 
+          setProjectName(selectedProjectName); // para reusar el título del modal de guardado
+        }}
+      >
+        Continuar
+      </button>
+    </div>
+  </div>
+</Modal>
+
+<Modal
+  title={viewProjectId ? `Proyecto: ${projects.find(p => p.id === viewProjectId)?.name || ''}` : "Proyectos"}
+  isOpen={isProjectsModalOpen}
+  onClose={() => { setProjectsModalOpen(false); setViewProjectId(null); }}
+  width={860}
+  variant={modalVariant}
+>
+  {!viewProjectId ? (
+    // LISTA DE PROYECTOS
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
+      {projects.length === 0 && (
+        <div style={{ gridColumn: '1 / -1', opacity: .7 }}>Aún no hay proyectos.</div>
+      )}
+
+      {projects.map((p) => {
+        const items = savedList
+          .filter(r => r.projectId === p.id)
+          .sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt));
+        const last = items[0];
+        const hero = last?.previewThumb || last?.preview || null;
+
+        return (
+          <button
+            key={p.id}
+            onClick={() => setViewProjectId(p.id)}
+            style={{
+              textAlign: 'left',
+              border: '1px solid rgba(0,0,0,.10)',
+              borderRadius: 16,
+              overflow: 'hidden',
+              background: '#f3f1f1ff',
+              cursor: 'pointer',
+              padding: 0,
+              boxShadow: '0 6px 18px rgba(0,0,0,.06)'
+            }}
+          >
+            <div style={{
+              height: 220,
+              background: '#b3b3b3ff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 10
+            }}>
+              {hero ? (
+                <img
+                  src={hero}
+                  alt=""
+                  style={{ maxWidth: '100%', maxHeight: '100%', display: 'block', objectFit: 'contain' }}
+                  draggable={false}
+                />
+              ) : (
+                <div style={{ opacity: .6, fontSize: 13 }}>Sin imagen</div>
+              )}
+            </div>
+            <div style={{ padding: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
+              <div style={{ fontSize: 12, opacity: .7 }}>{items.length} plantilla(s)</div>
+              <div style={{ fontSize: 12, opacity: .55, marginTop: 4 }}>
+                Creado: {new Date(p.createdAt).toLocaleString()}
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  ) : (
+    // DETALLE DEL PROYECTO
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
+      <div style={{ gridColumn: '1 / -1', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button className={styles.smallButton2} onClick={() => setViewProjectId(null)}>← Volver</button>
+        <div style={{ fontSize: 12, opacity: .7 }}>
+          {(savedList.filter(r => r.projectId === viewProjectId)).length} elemento(s)
+        </div>
+      </div>
+
+      {savedList
+        .filter(r => r.projectId === viewProjectId)
+        .sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt))
+        .map((r) => {
+          const hero = r.previewThumb || r.preview || null;
+          return (
+            <div
+              key={r.id}
+              style={{
+                border: '1px solid rgba(0,0,0,.10)',
+                borderRadius: 16,
+                overflow: 'hidden',
+                background: '#fff',
+                boxShadow: '0 6px 18px rgba(0,0,0,.06)'
+              }}
+            >
+              <div style={{
+                height: 290,
+                background: '#b4b4b4ff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 12,
+                borderBottom: '1px solid rgba(0,0,0,.08)'
+              }}>
+                {hero ? (
+                  <img
+                    src={hero}
+                    alt=""
+                    style={{
+                      maxWidth: '110%',
+                      maxHeight: '110%',
+                      display: 'block',
+                      objectFit: 'contain',
+                      marginLeft: '0',  
+                      marginRight: '24px'    
+                    }}
+                    draggable={false}
+                  />
+                ) : (
+                  <div style={{ opacity: .6, fontSize: 13 }}>Sin imagen</div>
+                )}
+              </div>
+
+              <div style={{ padding: 12 }}>
+                <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 , color:"black"}}>
+                  {r.placeName}
+                </div>
+                <div style={{ fontSize: 12, opacity: .7, marginBottom: 10  , color:"black"}}>
+                  {new Date(r.savedAt).toLocaleString()}
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap',color:"black" }}>
+                  <button
+                    className={styles.smallButton2}
+                    onClick={() => {
+                      applySnapshot(r.snapshot);
+                      setCurrentRecordId(r.id);
+                      setCurrentProjectBadge({ id: r.projectId, name: r.projectName, place: r.placeName });
+                      setSelectedProjectId(r.projectId);
+                      setSelectedProjectName(r.projectName);
+                      setLabelInput(r.placeName);
+                      setProjectsModalOpen(false);
+                      setViewProjectId(null);
+                    }}
+                  >
+                    Cargar
+                  </button>
+
+                  {/* 🔥 Eliminado: botón "Descargar JSON" */}
+
+                  {r.preview && (
+                    <button
+                      className={styles.smallButton2}
+                      onClick={() => {
+                        const a = document.createElement('a');
+                        a.href = r.preview;
+                       // a.download = r.files?.pngName || 'preview.png';
+                        a.click();
+                      }}
+                    >
+                      Descargar PNG
+                    </button> 
+                  )}
+
+                  <button
+                    className={styles.smallButton2}
+                    onClick={() => {
+                      if (confirm('¿Eliminar esta plantilla del proyecto?')) {
+                        deleteRecord(r.id);
+                        refreshSaved();
+                      }
+                    }}
+                    style={{ borderColor: '#ef4444', color: '#ef4444' }}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+    </div>
+  )}
+</Modal>
+
+
+
+{isPreviewOpen && (
+  <div
+    role="dialog"
+    aria-modal="false"
+    style={{
+      position: 'fixed',
+      top: 24,
+      right: 24,
+      width: 340,
+      maxHeight: '80vh',
+      background: modalVariant === 'dark' ? '#111' : '#fff',
+      color: modalVariant === 'dark' ? '#fff' : '#111',
+      boxShadow: '0 10px 30px rgba(0,0,0,.25)',
+      borderRadius: 14,
+      border: '1px solid rgba(0,0,0,.15)',
+      overflow: 'hidden',
+      zIndex: 9999,
+      display: 'flex',
+      flexDirection: 'column'
+    }}
+  >
+    <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(0,0,0,.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <strong style={{ fontSize: 14 }}>Previsualización</strong>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className={styles.smallButton2} onClick={downloadPNG}>Descargar PNG</button>
+        <button className={styles.smallButton2} onClick={() => setPreviewOpen(false)}>Cerrar</button>
+      </div>
+    </div>
+
+    <div style={{ padding: 12, overflow: 'auto' }}>
+      {previewUrl ? (
+        <img
+          src={previewUrl}
+          alt="Vista previa de la plantilla"
+          style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 8 }}
+          draggable={false}
+        />
+      ) : (
+        <div style={{ opacity: .7, fontSize: 13 }}>No hay imagen disponible.</div>
+      )}
+    </div>
+  </div>
+)}
+<Modal
+  title="Nombre del proyecto"
+  isOpen={isProjectNameModalOpen}
+  onClose={() => setProjectNameModalOpen(false)}
+  width={520}
+  variant={modalVariant}
+>
+  <div style={{ display: 'grid', gap: 12, fontSize: 15, lineHeight: 1.5 }}>
+    <p>Agrega el nombre del proyecto donde deseas guardar esta plantilla.</p>
+<div style={{ display: 'grid', gap: 8 }}>
+  {currentRecordId ? (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6 }}>
+      <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+        <input
+          type="radio"
+          name="savemode"
+          checked={saveMode === 'update'}
+          onChange={() => setSaveMode('update')}
+        />
+        Actualizar la seleccionada
+        <span style={{ fontSize: 12, opacity: .7 }}>
+          ({currentProjectBadge.name} • {currentProjectBadge.place})
+        </span>
+      </label>
+      <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+        <input
+          type="radio"
+          name="savemode"
+          checked={saveMode === 'new'}
+          onChange={() => setSaveMode('new')}
+        />
+        Guardar como nueva
+      </label>
+    </div>
+  ) : (
+    <div style={{ fontSize: 12, opacity: .7, marginBottom: 6 }}>
+      Guardarás una nueva plantilla.
+    </div>
+  )}
+</div>
+
+    <input
+      type="text"
+      placeholder="Ejemplo: Hotel Mar Azul, Casa Medellín..."
+      value={projectName}
+      onChange={(e) => setProjectName(e.target.value)}
+      style={{
+        padding: '8px 10px',
+        borderRadius: 6,
+        border: '1px solid #ccc',
+        fontSize: 15,
+        width: '100%',
+      }}
+    />
+
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+      <button className={styles.smallButton2} onClick={() => setProjectNameModalOpen(false)}>
+        Cancelar
+      </button>
+      <button
+        className={styles.smallButton}
+        onClick={() => {
+          if (!projectName.trim()) return alert('Por favor escribe un nombre de proyecto');
+          setProjectNameModalOpen(false);
+          setSaveAskOpen(true); // pasa al siguiente paso
+        }}
+      >
+        Continuar
+      </button>
+    </div>
+  </div>
+</Modal>
+
+<Modal
+  title={`Guardar plantilla en "${projectName || 'Proyecto'}"`}
+  isOpen={isSaveAskOpen}
+  onClose={() => setSaveAskOpen(false)}
+  width={520}
+  variant={modalVariant}
+>
+  <div style={{ display: 'grid', gap: 12, fontSize: 15, lineHeight: 1.5 }}>
+    <p>Indica el <b>nombre del lugar</b> dentro del proyecto <b>{projectName}</b>.</p>
+
+    <input
+      type="text"
+      placeholder="Ejemplo: Habitación 101, Sala principal..."
+      value={labelInput}
+      onChange={(e) => setLabelInput(e.target.value)}
+      style={{
+        padding: '8px 10px',
+        borderRadius: 6,
+        border: '1px solid #ccc',
+        fontSize: 15,
+        width: '100%',
+      }}
+    />
+
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+      <button className={styles.smallButton2} onClick={() => setSaveAskOpen(false)}>
+        Cancelar
+      </button>
+   <button
+  className={styles.smallButton}
+  onClick={saveTemplateNow}
+>
+  Guardar
+</button>
+        
+    </div>
+  </div>
+</Modal>
+
+
+
       <div className={styles.logo}>
         <img src={logoDiseven} className={styles.imgLogo}/>
       </div>
@@ -896,12 +1960,16 @@ useEffect(() => {
     {/* Carcasa */}
     {plateMode === 'sencilla' && carcasaSingle && (
       <>
+      { carcasaSingle && (
         <KonvaImage image={carcasaSingle} x={200} y={40} width={785} height={785} className={styles.carcasa} />
-        <Rect
-          x={SINGLE_PLATE.x} y={SINGLE_PLATE.y}
-          width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
-          fill={selectedColor} cornerRadius={15}
-        />
+       )}
+      
+      <Rect
+        x={SINGLE_PLATE.x} y={SINGLE_PLATE.y}
+        width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
+        fill={selectedColor} cornerRadius={15}
+      />
+    
         {selectedPlantillaSingle !== '04' && plantillaSingle && (
           <KonvaImage
             image={plantillaSingle}
@@ -909,21 +1977,24 @@ useEffect(() => {
             width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
           />
         )}
-
-        {/* Slots + selección de slot */}
-    {slotsSingle.map((s, i) => (
+{/* Slots + selección de slot (ocultos cuando exportas) */}
+{slotsSingle.map((s, i) => (
   <Rect
     key={`single-${i}`}
-    x={s.x} y={s.y} width={s.w} height={s.h} cornerRadius={12}
+    x={s.x}
+    y={s.y}
+    width={s.w}
+    height={s.h}
+    cornerRadius={12}
     listening
     onClick={(e) => { e.cancelBubble = true; setActiveArea('single'); setActiveSlotIdx(i); }}
-      onTap={(e) => { e.cancelBubble = true; setActiveArea('single'); setActiveSlotIdx(i); }} // <- ADD
-
-    stroke={activeArea==='single' && i===activeSlotIdx ? '#0ea5e9' : undefined}
-    strokeWidth={activeArea==='single' && i===activeSlotIdx ? 2 : 0}
-    shadowBlur={activeArea==='single' && i===activeSlotIdx ? 6 : 0}
+    onTap={(e) => { e.cancelBubble = true; setActiveArea('single'); setActiveSlotIdx(i); }}
+    stroke={activeArea === 'single' && i === activeSlotIdx ? '#0ea5e9' : undefined}
+    strokeWidth={activeArea === 'single' && i === activeSlotIdx ? 2 : 0}
+    shadowBlur={activeArea === 'single' && i === activeSlotIdx ? 6 : 0}
   />
 ))}
+
 
         {iconsSingle.map(icon => (
           <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
@@ -940,17 +2011,20 @@ useEffect(() => {
        {selectedPlantillaLeft !== '04' && plantillaLeft && (
           <KonvaImage image={plantillaLeft} x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h}/>
         )}
- {slotsLeft.map((s, i) => (
+{ slotsLeft.map((s, i) => (
   <Rect
     key={`left-${i}`}
-    x={s.x} y={s.y} width={s.w} height={s.h} cornerRadius={12}
+    x={s.x}
+    y={s.y}
+    width={s.w}
+    height={s.h}
+    cornerRadius={12}
     listening
     onClick={(e) => { e.cancelBubble = true; setActiveArea('left'); setActiveSlotIdx(i); }}
-onTap={(e) => { e.cancelBubble = true; setActiveArea('left'); setActiveSlotIdx(i); }}
-
-    stroke={activeArea==='left' && i===activeSlotIdx ? '#0ea5e9' : undefined}
-    strokeWidth={activeArea==='left' && i===activeSlotIdx ? 2 : 0}
-    shadowBlur={activeArea==='left' && i===activeSlotIdx ? 6 : 0}
+    onTap={(e) => { e.cancelBubble = true; setActiveArea('left'); setActiveSlotIdx(i); }}
+    stroke={activeArea === 'left' && i === activeSlotIdx ? '#0ea5e9' : undefined}
+    strokeWidth={activeArea === 'left' && i === activeSlotIdx ? 2 : 0}
+    shadowBlur={activeArea === 'left' && i === activeSlotIdx ? 6 : 0}
   />
 ))}
         {iconsLeft.map(icon => (
@@ -962,19 +2036,21 @@ onTap={(e) => { e.cancelBubble = true; setActiveArea('left'); setActiveSlotIdx(i
        {selectedPlantillaRight !== '04' && plantillaRight && (
           <KonvaImage image={plantillaRight} x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h}/>
         )}
-    {slotsRight.map((s, i) => (
+
+{ slotsRight.map((s, i) => (
   <Rect
     key={`right-${i}`}
-    x={s.x} y={s.y} width={s.w} height={s.h} cornerRadius={12}
+    x={s.x}
+    y={s.y}
+    width={s.w}
+    height={s.h}
+    cornerRadius={12}
     listening
-// RIGHT (fix)
-onClick={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(i); }}
-onTap={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(i); }}
-
-
-    stroke={activeArea==='right' && i===activeSlotIdx ? '#0ea5e9' : undefined}
-    strokeWidth={activeArea==='right' && i===activeSlotIdx ? 2 : 0}
-    shadowBlur={activeArea==='right' && i===activeSlotIdx ? 6 : 0}
+    onClick={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(i); }}
+    onTap={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(i); }}
+    stroke={activeArea === 'right' && i === activeSlotIdx ? '#0ea5e9' : undefined}
+    strokeWidth={activeArea === 'right' && i === activeSlotIdx ? 2 : 0}
+    shadowBlur={activeArea === 'right' && i === activeSlotIdx ? 6 : 0}
   />
 ))}
         {iconsRight.map(icon => (

@@ -865,3 +865,38 @@ right: 200px;
 }
 
 
+
+.contendor3 {
+  position: absolute;
+  top: 20px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 50; /* asegura que quede encima del canvas */
+  background: rgba(0, 0, 0, 0.3); /* fondo semitransparente */
+  backdrop-filter: blur(6px);
+  border-radius: 10px;
+  padding: 10px;
+  pointer-events: auto; /* permite click en los botones */
+}
+
+.smallButton2 {
+  color: rgb(0, 0, 0);
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 8px 14px;
+  transition: background 0.25s, transform 0.2s;
+}
+
+.smallButton:hover {
+  background: var(--brand-3, #0b6ea4);
+  transform: translateY(-1px);
+}
+
+.smallButton:active {
+  transform: scale(0.98);
+}
