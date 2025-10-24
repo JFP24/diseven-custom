@@ -12,6 +12,7 @@
   "dependencies": {
     "framer-motion": "^12.23.12",
     "konva": "^9.3.22",
+    "lucide-react": "^0.548.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-konva": "^19.0.7",

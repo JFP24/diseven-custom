@@ -900,3 +900,61 @@ right: 200px;
 .smallButton:active {
   transform: scale(0.98);
 }
+
+
+/* 🔹 Botón estándar (para "Mis Proyectos" y "Guardar plantilla") */
+.smallButton3 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  color: #000;
+  background: #f1f1f1;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 19px;
+  font-weight: 700;
+  transition: all 0.25s ease;
+}
+
+/* efecto hover */
+.smallButton3:hover {
+  background: #e4e4e4;
+  transform: translateY(-1px);
+}
+
+/* 🔸 Botón Reset */
+.smallButton2reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 700;
+  transition: all 0.25s ease;
+}
+
+
+/* 🔘 Iconos dentro de los botones */
+.smallButton3 svg,
+.smallButton2reset svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 🔄 Imagen del botón reset (por si usas imagen en lugar de ícono SVG) */
+.imagenR {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
