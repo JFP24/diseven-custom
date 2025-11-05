@@ -1,15 +1,25 @@
 // src/components/Home/home.jsx
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import styles from "./home.module.css";
+import { useAuth } from "../../auth/AuthContext.jsx";
+import LoginModal from "../Auth/LoginModal.jsx";
+import ProfileBar from "../Auth/ProfileBar.jsx";
 
 const imgHome = "/assets/imgHome/suiches.jpg";
-const logoBlue = "/assets/imgHome/logoDiseven.png";   // PNG sobre fondo oscuro
-const logoDark = "/assets/imgHome/logo_negro.png";     // (opcional) para fondos claros
+const logoBlue = "/assets/imgHome/logoDiseven.png";
 
 export default function Home() {
-  // Intro solo la primera visita de la sesión (cámbialo a localStorage si quieres “solo 1 vez por navegador”)
+  const { user, ready } = useAuth();
+  const nav = useNavigate();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (open && user) setOpen(false);
+  }, [ready, open, user]);
+
   const [showIntro, setShowIntro] = useState(() => !sessionStorage.getItem("home-intro"));
   useEffect(() => {
     if (showIntro) {
@@ -21,26 +31,35 @@ export default function Home() {
     }
   }, [showIntro]);
 
+  const handleCtaClick = (e) => {
+    if (!user) {
+      e.preventDefault();
+      setOpen(true);
+    }
+  };
+
+  if (!ready) {
+    return (
+      <div className={styles.hero} style={{ display: "grid", placeItems: "center" }}>
+        <img src={logoBlue} alt="DISEVEN" className={styles.footerLogo} />
+      </div>
+    );
+  }
+
   return (
     <>
-      {/* Top bar con logo */}
+      {/* Top bar */}
       <header className={styles.nav}>
-      <div className={styles.brand}>
-  <div className={styles.logoWrap}>
-    <img src={logoBlue} alt="DISEVEN" className={styles.logoImg}/>
-  </div>
-</div>
-        {/* <nav className={styles.navLinks}>
-          <Link to="/designer">Diseñador</Link>
-          <a href="/catalogo.pdf" target="_blank" rel="noreferrer">Catálogo</a>
-        </nav> */}
+        <ProfileBar onClickHome={() => nav("/")} />
+        <div className={styles.logoWrap}>
+          <img src={logoBlue} alt="DISEVEN" className={styles.logoImg}/>
+        </div>
       </header>
 
       {/* Hero */}
       <div className={styles.hero}>
         <AnimatePresence>{showIntro && <IntroOverlay />}</AnimatePresence>
 
-        {/* Fondo con reveal premium */}
         <motion.div
           className={styles.heroBg}
           style={{ backgroundImage: `url(${imgHome})` }}
@@ -49,17 +68,6 @@ export default function Home() {
           transition={{ duration: 1.1, ease: [0.19, 1, 0.22, 1] }}
         />
 
-        {/* Marca sutil (watermark) */}
-        {/* <motion.img
-          src={logoBlue}
-          alt="DISEVEN"
-          className={styles.heroBadge}
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 0.75, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.6 }}
-        /> */}
-
-        {/* Contenido */}
         <div className={styles.heroInner}>
           <motion.h1
             className={styles.title}
@@ -67,7 +75,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.45, duration: 0.6 }}
           >
-             Toma el control  de tus espacios con elegancia
+            Toma el control de tus espacios con elegancia
           </motion.h1>
 
           <motion.p
@@ -85,13 +93,15 @@ export default function Home() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.8, duration: 0.6 }}
           >
-            <Link to="/designer" className={styles.btnPrimary}>Diseñar mi placa</Link>
+            <Link to="/designer" className={styles.btnPrimary} onClick={handleCtaClick}>
+              Diseñar mi placa
+            </Link>
             <a href="/catalogo.pdf" className={styles.btnGhost}>Ver catálogo</a>
           </motion.div>
         </div>
       </div>
 
-      {/* Sección dividida */}
+      {/* Split */}
       <section className={styles.split}>
         <div className={styles.splitText}>
           <h2>Control táctil con look arquitectónico</h2>
@@ -105,7 +115,9 @@ export default function Home() {
             <li>Compatibles con tus escenarios y escenas favoritas</li>
           </ul>
           <div className={styles.splitCtas}>
-            <Link to="/designer" className={styles.btnPrimary}>Probar el diseñador</Link>
+            <Link to="/designer" className={styles.btnPrimary} onClick={handleCtaClick}>
+              Probar el diseñador
+            </Link>
             <a className={styles.link} href="/catalogo.pdf">Descargar ficha técnica</a>
           </div>
         </div>
@@ -131,9 +143,7 @@ export default function Home() {
           </article>
         </div>
       </section>
-
-      {/* Materiales */}
-      <section className={styles.materials}>
+   <section className={styles.materials}>
         <h2>Acabados disponibles</h2>
         <p className={styles.materialsSub}>Sobrios, atemporales y combinables.</p>
         <div className={styles.swatches}>
@@ -142,17 +152,9 @@ export default function Home() {
           <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotNickel}`} /> Níquel</div>
           <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotGold}`} /> Oro cepillado</div>
         </div>
-     
       </section>
-
-      {/* Cierre con logo
-   <footer className={styles.footer}>
-  <div className={styles.footerBrand}>
-    <div className={styles.logoWrapSm}>
-      <img src={logoBlue} alt="DISEVEN" className={styles.logoImg}/>
-    </div>
-  </div>
-</footer> */}
+      {/* Modal Auth */}
+      <LoginModal open={open && !user} onClose={() => setOpen(false)} />
     </>
   );
 }
@@ -173,7 +175,7 @@ function IntroOverlay() {
         exit={{ scale: 1.02, opacity: 0 }}
         transition={{ duration: 0.7, ease: [0.19, 1, 0.22, 1] }}
       >
-        <img src={logoBlue} alt="DISEVEN — Innovación tecnológica" className={styles.introLogo} />
+        <img src="/assets/imgHome/logoDiseven.png" alt="DISEVEN — Innovación tecnológica" className={styles.introLogo} />
         <motion.span
           className={styles.goldBar}
           initial={{ width: 0 }}
@@ -184,3 +186,8 @@ function IntroOverlay() {
     </motion.div>
   );
 }
+
+
+
+
+   

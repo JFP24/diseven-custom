@@ -29,15 +29,15 @@
   backdrop-filter: blur(4px);
 
 }
-.brand { display: inline-flex; align-items: center; gap: 8px; }
-.logoImg {position: absolute; height: 98px;  filter: drop-shadow(0 2px 8px rgba(0,0,0,.45)); }
+.logoWrap {position: absolute; display: inline-flex; align-items: center; gap: 8px; }
+.logoImg {position: absolute;top:40px;height: 98px;  filter: drop-shadow(0 2px 8px rgba(0,0,0,.45)); }
 .navLinks { display: flex; gap: 16px; }
 .navLinks a { color: var(--text); text-decoration: none; opacity: .9; }
 .navLinks a:hover { opacity: 1; }
 
 /* Marca sutil en el hero */
 .heroBadge {
-  position: absolute;
+  position: absolute; 
   top: 18px;
   left: 22px;
   height: 40px;
@@ -46,7 +46,7 @@
 }
 
 /* Intro con logo imagen */
-.introLogo { height: 44px; margin-bottom: 12px; filter: drop-shadow(0 3px 10px rgba(0,0,0,.45)); }
+.introLogo { position: absolute;height: 44px; margin-bottom: 12px; filter: drop-shadow(0 3px 10px rgba(0,0,0,.45)); }
 
 /* Footer logo */
 .footerLogo { height: 24px; opacity: .8; margin-bottom: 8px; }

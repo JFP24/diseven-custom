@@ -5,6 +5,10 @@ import styles from './diseñoCanvas.module.css';
 const reloadIcon = "/assets/ICONOS/icono-reload.png";
 const logoDiseven = "/assets/imgHome/disevenhome.png";
 import { FolderKanban, Save, RotateCcw } from "lucide-react";
+import ProfileBar from "./Auth/ProfileBar.jsx";
+import { useNavigate, Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext.jsx";
+
 // Reemplaza la firma y el useImage:
 // Reemplaza TU IconWithLabel completo por este:
 // REPLACE la firma y el Group de IconWithLabel:
@@ -330,9 +334,111 @@ function useContainerSize() {
 const DESIGN_W = 1100;
 const DESIGN_H = 900;
 
+// BASE URL de tu API
+// BASE URL de tu API
+const API_BASE = import.meta.env?.VITE_API_BASE || "http://custom.disevenapp.com/api:3000/api/v1";
+
+// Helper: Authorization: Bearer <token>
+function authHeaders(extra = {}) {
+  const t = localStorage.getItem("token");
+  return t
+    ? { ...extra, Authorization: `Bearer ${t}` }
+    : { ...extra };
+}
+
+// Helper: manejo de respuesta
+async function handle(res) {
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data.message || data.msg || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+
+//            --- PROYECTOS ---
+
+// Obtener todos los proyectos desde Mongo
+async function apiFetchProjects() {
+  const res = await fetch(`${API_BASE}/proyectos`, {
+    method: "GET",
+    headers: authHeaders()
+  });
+  const data = await handle(res); // { data: [...] }
+  return data.data;
+}
+
+
+// Crear un proyecto nuevo en Mongo
+async function apiCreateProject(name) {
+  const res = await fetch(`${API_BASE}/crearProyecto`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ name }),
+  });
+  const data = await handle(res); // { message, data }
+  return data.data;
+}
+
+
+async function fetchPlantillasByProject(projectId) {
+  const res = await fetch(`${API_BASE}/plantillas/${projectId}`, {
+    headers: authHeaders()
+  });
+  return handle(res); // { projectId, count, plantillas: [...] }
+}
+
+async function fetchPlantillaById(id) {
+  const res = await fetch(`${API_BASE}/plantilla/${id}`, {
+    headers: authHeaders()
+  });
+  const data = await handle(res); // { message, data }
+  return data.data;
+}
+
+
+async function apiDeletePlantilla(id) {
+  const res = await fetch(`${API_BASE}/plantilla/${id}`, {
+    method: "DELETE",
+    headers: authHeaders()
+  });
+  return handle(res); // { message, data: "<id>" }
+}
+
+async function apiRenameProject(id, newName) {
+  const res = await fetch(`${API_BASE}/proyecto/${id}`, {
+    method: "PUT",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ name: newName }),
+  });
+  const data = await handle(res);
+  return data.data;
+}
+
+async function apiDeleteProject(id) {
+  const res = await fetch(`${API_BASE}/proyecto/${id}`, {
+    method: "DELETE",
+    headers: authHeaders()
+  });
+  const data = await handle(res); // { message, data: <id> }
+  return data.data;
+}
+
 
 const DesignerCanvas = () => {
+  const nav = useNavigate();
+    const { user } = useAuth();
+  const [open, setOpen] = useState(false);
 
+  // ❌ Quitamos el redirect automático. Así puedes volver a Home con sesión activa.
+  // ✅ Si el modal está abierto y se logra login (user aparece), cerramos y navegamos.
+  useEffect(() => {
+    if (open && user) {
+      setOpen(false);
+      nav("/designer");
+    }
+  }, [open, user, nav]);
   const [canvasHostRef, hostSize] = useContainerSize();
   const scale = Math.min(hostSize.w / DESIGN_W, hostSize.h / DESIGN_H);
 // === ADD (cerca a tus constantes): solo 3 previews ===
@@ -390,6 +496,8 @@ const [iconsRight,  setIconsRight]  = useState([]);
 
 const [activeArea, setActiveArea] = useState('single');
 const [activeSlotIdx, setActiveSlotIdx] = useState(null);
+// Plantillas traídas del backend, agrupadas por proyecto
+const [templatesByProject, setTemplatesByProject] = useState(new Map());
 
 // Guardados (lista plana y agrupada)
 const [savedList, setSavedList] = useState([]);
@@ -454,69 +562,124 @@ const [isSuicheModalOpen, setSuicheModalOpen] = useState(false);
 // Paso 2: guardar plantilla (ya existente)
 const [isSaveAskOpen, setSaveAskOpen] = useState(false);
 
-// const handleSaveTemplateClick = () => {
-//   // Primer paso: pide nombre del proyecto
-//   setProjectNameModalOpen(true);
-// };
+
 
 // ===== PROYECTOS =====
 const [projects, setProjects] = useState([]);
 const [isSelectProjectOpen, setSelectProjectOpen] = useState(false);
+
 const [selectedProjectId, setSelectedProjectId] = useState(null);
 
-// UI de proyectos (viewer)
 const [viewProjectId, setViewProjectId] = useState(null);
 
-// para crear uno nuevo directamente desde el modal
 const [newProjectName, setNewProjectName] = useState("");
 
-// cargar/refresh proyectos
-const refreshProjects = () => setProjects(loadProjects());
-useEffect(() => { refreshProjects(); }, []);
 
-const handleSaveTemplateClick = () => {
-  // refrescamos listas actuales
+const refreshProjects = useCallback(async () => {
+  try {
+    // 1. Traer proyectos desde backend
+    const list = await apiFetchProjects();
+    setProjects(list);
+
+    // 2. Para cada proyecto, traer sus plantillas (resumen)
+    const { byProject, flatList } = await fetchAllTemplatesForProjects(list);
+
+    // 3. Guardar en estado React
+    setTemplatesByProject(byProject);  // Map(projectId -> [plantillasResumidas])
+    setSavedList(flatList);            // lista plana compatible con tu UI actual
+    setProjectGroups(groupByProject(flatList));
+
+    // 4. Asegurar selección de proyecto por defecto
+    if (!selectedProjectId && list.length > 0) {
+      setSelectedProjectId(list[0]._id);
+      setSelectedProjectName(list[0].name);
+    }
+
+  } catch (err) {
+    console.error("No se pudieron cargar proyectos o plantillas:", err);
+  }
+}, [selectedProjectId]);
+
+
+useEffect(() => {
   refreshProjects();
-  refreshSaved();
+}, [refreshProjects]);
 
-  // 1. Si ya hay un contexto de plantilla cargada (currentProjectBadge),
-  //    úsalo como preselección
+
+const handleSaveTemplateClick = async () => {
+  // Traemos última info
+  await refreshProjects();
+  refreshSaved(); // esto sigue siendo tu cache local de plantillas
+
+  // Caso 1: ya hay una plantilla cargada en el canvas que venía de algún proyecto
   if (currentProjectBadge.id) {
-    setSelectedProjectId(currentProjectBadge.id);
-    setSelectedProjectName(currentProjectBadge.name || "");
-    setLabelInput(currentProjectBadge.place || "");
+    setSelectedProjectId(currentProjectBadge.id);           // Mongo _id que guardaste antes
+    setSelectedProjectName(currentProjectBadge.name || ""); // nombre del proyecto
+    setLabelInput(currentProjectBadge.place || "");         // nombre del lugar / habitación
   } else {
-    // 2. Si NO hay contexto (primer guardado en esta sesión)
-    //    intenta autoseleccionar el primer proyecto existente
-    const existingProjects = loadProjects();
-    if (existingProjects.length > 0) {
-      setSelectedProjectId(existingProjects[0].id);
-      setSelectedProjectName(existingProjects[0].name);
-      // si aún no hay labelInput (nombre del lugar), lo dejamos tal cual;
-      // el usuario lo puede escribir en el modal
+    // Caso 2: es la primera vez que va a guardar en esta sesión
+    // usamos el primer proyecto de la lista si existe
+    if (projects.length > 0) {
+      setSelectedProjectId(projects[0]._id);
+      setSelectedProjectName(projects[0].name);
+      // labelInput lo dejamos como está (así si ya escribió "Habitación 302"
+      // en el panel de la izquierda, no lo borramos)
     } else {
-      // no hay proyectos todavía
+      // no hay proyectos todavía -> lo dejamos vacío
       setSelectedProjectId(null);
       setSelectedProjectName("");
+      // labelInput se queda como esté
     }
   }
 
-  // finalmente abrimos el modal "Guardar plantilla"
+  // Abrimos el modal "Guardar plantilla"
   setSelectProjectOpen(true);
 };
 
 
+async function fetchAllTemplatesForProjects(projectList) {
+  const byProject = new Map();
+  const flatList = [];
+
+  for (const p of projectList) {
+    try {
+      const res = await fetchPlantillasByProject(p._id);
+
+      const arr = res.plantillas || [];
+
+      // Guardar en el Map como viene del backend (resumidas)
+      byProject.set(p._id, arr);
+
+      // Construimos una versión "flat" parecida a savedList
+      for (const tpl of arr) {
+        flatList.push({
+          id: tpl._id,                  // usamos el _id de Mongo
+          projectId: p._id,             // el backend no lo manda, lo inferimos
+          projectName: p.name || "",    // el backend no lo manda, lo inferimos
+          placeName: tpl.placeName || "(sin nombre)",
+          savedAt: tpl.savedAt || new Date().toISOString(),
+          plateMode: tpl.plateMode,
+          snapshot: null,               // ⚠ todavía no lo tenemos aquí
+          preview: null,                // tu backend no manda 'preview' en el listado
+          previewThumb: tpl.previewThumb || null,
+        });
+      }
+
+    } catch (err) {
+      console.error("Error cargando plantillas del proyecto", p._id, err);
+      byProject.set(p._id, []);
+    }
+  }
+
+  // orden descendente por fecha
+  flatList.sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt));
+
+  return { byProject, flatList };
+}
 
 
 
 // --- Helpers de guardado temporal (front-only) ---
-const sanitize = (s = "") =>
-  s.trim().toLowerCase()
-   .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-   .replace(/[^a-z0-9-_]+/g, "-")
-   .replace(/-+/g, "-")
-   .replace(/^-|-$/g, "") || "sin-nombre";
-
 
 
 const buildTemplateSnapshot = ({ projectName, placeName }) => {
@@ -559,186 +722,133 @@ const buildTemplateSnapshot = ({ projectName, placeName }) => {
     },
   };
 };
-const saveTemplateNow = () => {
+const saveTemplateNow = async () => {
   const projectId = selectedProjectId;
-  const project   = (selectedProjectName || "").trim();
-  const place     = (labelInput || "").trim();
+  const projectNameClean = (selectedProjectName || "").trim();
+  const placeInput = (labelInput || "").trim(); // lo que el usuario está escribiendo ahora
 
-  if (!projectId || !project) {
+  if (!projectId || !projectNameClean) {
     alert("Primero selecciona o crea un proyecto");
     return;
   }
-  if (!place) {
+  
+  if (!placeInput) {
     alert("Escribe el nombre del lugar");
     return;
   }
 
-  // Estado lógico (plantillas, iconos, etc.)
+  // Estado lógico actual del canvas (toda la info necesaria para snapshot)
   const snapshot = buildTemplateSnapshot({
-    projectName: project,
-    placeName: place,
+    projectName: projectNameClean,
+    placeName: placeInput,
   });
 
-  // Imagen grande y miniatura
+  // Capturas visuales
   const previewFull = captureStagePreview?.() || null;
   const thumbSmall  = captureStageThumb?.()    || null;
 
-  // Lista actual en localStorage
-  let list = loadTemplates();
+  // --- DECISIÓN: ¿update o create? ---
+  // Estamos editando si ya tenemos un record cargado
+  const isEditingExisting = !!currentRecordId;
+  // ¿el nombre del lugar sigue igual al original cargado?
+  const samePlaceName = currentProjectBadge.place?.trim() === placeInput;
 
-  // ¿YA existe una placa con ese MISMO nombre dentro del MISMO proyecto?
-  const existingIndex = list.findIndex(
-    (r) =>
-      r.projectId === projectId &&
-      r.placeName.toLowerCase().trim() === place.toLowerCase().trim()
-  );
+  // Regla:
+  // - Si estoy editando y no cambié el nombre -> PUT (actualizar)
+  // - En cualquier otro caso -> POST (crear nueva)
+  const shouldUpdate = isEditingExisting && samePlaceName;
 
-  const baseRecordFields = {
-    projectId,
-    projectName: project,
-    placeName: place,
-    savedAt: new Date().toISOString(),
-    plateMode,
-    snapshot,
-    preview: previewFull,
-    previewThumb: thumbSmall,
-  };
+  try {
+    let response;
+    let data;
 
-  // ---------------------------------
-  // CASO 1: ACTUALIZAR EXISTENTE
-  // ---------------------------------
-  if (existingIndex !== -1) {
-    const updated = {
-      ...list[existingIndex],
-      ...baseRecordFields,
-      id: list[existingIndex].id, // mantener el mismo id
-    };
+    if (shouldUpdate) {
+      // === UPDATE EXISTENTE (PUT) ===
+  // PUT (update)
+response = await fetch(`${API_BASE}/plantilla/${currentRecordId}`, {
+  method: "PUT",
+  headers: authHeaders({ "Content-Type": "application/json" }),
+  body: JSON.stringify({ projectId, placeName: placeInput, plateMode, preview: previewFull, previewThumb: thumbSmall, snapshot }),
+});
 
-    // Intento de guardado con degradación por cuota
-    const trySaveUpdatedList = (records) => {
-      try {
-        saveTemplates(records);
-        return true;
-      } catch (err) {
-        return err;
+      data = await response.json();
+
+      if (!response.ok) {
+        console.error("Error actualizando plantilla:", data);
+        alert("No se pudo actualizar la plantilla.");
+        return;
       }
-    };
 
-    // Primer intento: tal cual
-    list[existingIndex] = updated;
-    let result = trySaveUpdatedList(list);
+      console.log("✅ Plantilla actualizada:", data);
 
-    if (result !== true && result?.name === "QuotaExceededError") {
-      // Segundo intento: solo miniatura
-      list[existingIndex] = {
-        ...updated,
-        preview: null,
-        previewThumb: thumbSmall,
-      };
-      result = trySaveUpdatedList(list);
+      // Mantenemos el mismo currentRecordId
+      setCurrentRecordId(currentRecordId);
+      setCurrentProjectBadge({
+        id: projectId,
+        name: projectNameClean,
+        place: placeInput,
+      });
 
-      if (result !== true && result?.name === "QuotaExceededError") {
-        // Tercer intento: sin imágenes
-        list[existingIndex] = {
-          ...updated,
-          preview: null,
-          previewThumb: null,
-        };
-        result = trySaveUpdatedList(list);
+    } else {
+      // === CREAR NUEVA (POST) ===
+  response = await fetch(`${API_BASE}/crearPlantilla`, { // <- si tu backend usa POST /crearPlantilla; si no, deja /crearPlantilla y crea ese alias en backend o cambia aquí a la ruta que tengas
+  method: "POST",
+  headers: authHeaders({ "Content-Type": "application/json" }),
+  body: JSON.stringify({ projectId, placeName: placeInput, plateMode, preview: previewFull, previewThumb: thumbSmall, snapshot }),
+});
 
-        if (result !== true && result?.name === "QuotaExceededError") {
-          alert("No se pudo actualizar la plantilla por límite de almacenamiento.");
-        }
+      data = await response.json();
+
+      if (response.status === 409) {
+        // Chocaste con otra que ya existe con ese nombre y proyecto
+        // Esto puede pasar si es "nueva" pero eligieron un nombre repetido
+        alert("Ya existe una placa con ese nombre en este proyecto.");
+        return;
       }
+
+      if (!response.ok) {
+        console.error("Error creando plantilla:", data);
+        alert("No se pudo crear la plantilla nueva.");
+        return;
+      }
+
+      console.log("✅ Plantilla creada:", data);
+
+      // Como es nueva, ahora sí actualizamos currentRecordId al nuevo _id
+      const created = data.data;
+      setCurrentRecordId(created._id);
+      setCurrentProjectBadge({
+        id: projectId,
+        name: projectNameClean,
+        place: placeInput,
+      });
     }
 
-    // Estado para futuros guardados rápidos
-    setCurrentRecordId(updated.id);
-    setCurrentProjectBadge({
-      id: projectId,
-      name: project,
-      place: place,
-    });
+    // Refrescar la lista en el modal desde Mongo (proyectos + plantillas)
+    await refreshProjects();
 
-    // ✅ refrescar lista y limpiar canvas
-    refreshSaved();
+    // Marcar versión limpia
     anchorCurrentAsClean();
+
+    // Cerrar modal de guardar
     setSelectProjectOpen(false);
 
-    // ⚠️ tu requisito: después de guardar, resetear el suiche
+    // Reset visual de placa (tú lo querías así)
     resetSwitch();
 
-    return;
+  } catch (err) {
+    console.error("❌ Error guardando plantilla:", err);
+    alert("Error de red guardando la plantilla.");
   }
-
-  // ---------------------------------
-  // CASO 2: CREAR NUEVO REGISTRO
-  // ---------------------------------
-  const newRecord = {
-    id: crypto.randomUUID(),
-    ...baseRecordFields,
-  };
-
-  list.push(newRecord);
-
-  const trySaveNewList = (records) => {
-    try {
-      saveTemplates(records);
-      return true;
-    } catch (err) {
-      return err;
-    }
-  };
-
-  // Primer intento: full calidad + thumb
-  let saveResult = trySaveNewList(list);
-
-  if (saveResult !== true && saveResult?.name === "QuotaExceededError") {
-    // Segundo intento: solo miniatura
-    list[list.length - 1] = {
-      ...newRecord,
-      preview: null,
-      previewThumb: thumbSmall,
-    };
-    saveResult = trySaveNewList(list);
-
-    if (saveResult !== true && saveResult?.name === "QuotaExceededError") {
-      // Tercer intento: sin imágenes
-      list[list.length - 1] = {
-        ...newRecord,
-        preview: null,
-        previewThumb: null,
-      };
-      saveResult = trySaveNewList(list);
-
-      if (saveResult !== true && saveResult?.name === "QuotaExceededError") {
-        alert("No se pudo guardar la plantilla por límite de almacenamiento del navegador.");
-      }
-    }
-  }
-
-  // Estado para futuros "guardar rápido"
-  setCurrentRecordId(newRecord.id);
-  setCurrentProjectBadge({
-    id: projectId,
-    name: project,
-    place: place,
-  });
-
-  // ✅ refrescar lista y limpiar canvas
-  refreshSaved();
-  anchorCurrentAsClean();
-  setSelectProjectOpen(false);
-
-  // ⚠️ requisito: resetear suiche / volver a estado inicial
-  resetSwitch();
 };
+
+
 
 
 const applySnapshot = (snap) => {
   // tema y suiche
   setSelectedColor(snap.theme || '#000000');
-  setSelectedSuiche(snap.suiche || dataSuiche.suiche4.image);
+  setSelectedSuiche(snap?.suiche || dataSuiche?.suiche4?.image);
   if (snap.plateMode === 'doble' && snap.carcasaDoble) {
     setSelectedCarcasaDoble(snap.carcasaDoble);
   }
@@ -816,20 +926,7 @@ const applySnapshot = (snap) => {
 };
 
 
-const updateTemplateRecord = (id, patch) => {
-  const list = loadTemplates();
-  const idx = list.findIndex(r => r.id === id);
-  if (idx === -1) return false;
-  list[idx] = { ...list[idx], ...patch };
-  saveTemplates(list);
-  return true;
-};
 
-const deleteRecord = (id) => {
-  const list = loadTemplates().filter(r => r.id !== id);
-  saveTemplates(list);
-};
-const STORAGE_KEY = "diseven:plantillas";
 
 const groupByProject = (list) => {
   const map = new Map();
@@ -848,37 +945,8 @@ const groupByProject = (list) => {
 const PROJECTS_KEY = "diseven:projects";
 const TEMPLATES_KEY = "diseven:plantillas";
 
-// ====== PROJECTS helpers
-const loadProjects = () => {
-  try { return JSON.parse(localStorage.getItem(PROJECTS_KEY) || "[]"); }
-  catch { return []; }
-};
 
-const saveProjects = (arr) => {
-  localStorage.setItem(PROJECTS_KEY, JSON.stringify(arr));
-};
 
-const createProject = (name) => {
-  const list = loadProjects();
-  const p = { id: crypto.randomUUID(), name: name.trim(), createdAt: new Date().toISOString() };
-  list.push(p);
-  saveProjects(list);
-  return p;
-};
-
-const renameProject = (id, newName) => {
-  const list = loadProjects().map(p => p.id === id ? { ...p, name: newName.trim() } : p);
-  saveProjects(list);
-};
-
-const deleteProject = (id) => {
-  // borra el proyecto...
-  const projects = loadProjects().filter(p => p.id !== id);
-  saveProjects(projects);
-  // ...y sus plantillas asociadas
-  const tpls = loadTemplates().filter(r => r.projectId !== id);
-  saveTemplates(tpls);
-};
 
 // ====== TEMPLATES helpers
 const loadTemplates = () => {
@@ -886,71 +954,16 @@ const loadTemplates = () => {
   catch { return []; }
 };
 
-const saveTemplates = (arr) => {
-  // puede lanzar QuotaExceededError; lo manejamos arriba
-  localStorage.setItem(TEMPLATES_KEY, JSON.stringify(arr));
-};
-
-
-
-const persistTemplateRecord = (record) => {
-  let list = loadTemplates();
-  list.push(record);
-
-  try {
-    saveTemplates(list);
-    return;
-  } catch (e1) {
-    if (e1?.name !== 'QuotaExceededError') throw e1;
-  }
-
-  // reintenta sin la preview del NUEVO
-  list[list.length - 1] = { ...record, preview: null };
-  try {
-    saveTemplates(list);
-    return;
-  } catch (e2) {
-    if (e2?.name !== 'QuotaExceededError') throw e2;
-  }
-
-  // quita previews de TODOS y reintenta
-  list = list.map(r => ({ ...r, preview: null }));
-  try {
-    saveTemplates(list);
-    return;
-  } catch (e3) {
-    if (e3?.name !== 'QuotaExceededError') throw e3;
-  }
-
-  // borra los más antiguos hasta que entre
-  // (mantén siempre el último que estamos guardando)
-  let i = 0;
-  while (i < list.length - 1) { // deja el último
-    list.splice(i, 1); // elimina el más antiguo (posición 0 repetidamente)
-    try {
-      saveTemplates(list);
-      return;
-    } catch (e4) {
-      if (e4?.name !== 'QuotaExceededError') throw e4;
-      // sigue podando
-    }
-  }
-
-  // Si llegamos acá, no se pudo guardar ni siquiera con 1 elemento sin preview
-  alert("No se pudo guardar la plantilla por límite de almacenamiento del navegador.");
-};
-
 
 // persistir un record (plantilla) referenciando un proyecto
 
 
-// --- Previsualización PNG del Stage ---
-const [isPreviewOpen, setPreviewOpen] = useState(false);
-const [previewUrl, setPreviewUrl] = useState(null);
+
   const stageRef = useRef(null);
 // Rectángulo exacto de la carcasa dibujada (sencilla y doble usan el mismo)
 // Caja exacta donde dibujas la carcasa
 // zona REAL donde dibujas la carcasa en el Stage
+
 const CARCASA_RECT = { x: 200, y: 40, w: 785, h: 785 };
 
 // márgenes opcionales alrededor para que no quede tan apretado en la miniatura
@@ -1007,45 +1020,8 @@ const captureStageThumb = () => {
 
 
 
-// === Descarga PNG (igual recorte pero más nítido) ===
-const captureStagePNG = () => {
-  if (!stageRef.current) return null;
-  try {
-    const rect = getExportRect();
-    return stageRef.current.toDataURL({
-      mimeType: "image/png",
-      pixelRatio: 2, // un poco más de nitidez para descarga
-      x: rect.x,
-      y: rect.y,
-      width: rect.w,
-      height: rect.h,
-    });
-  } catch (err) {
-    console.error("Error al capturar PNG:", err);
-    return null;
-  }
-};
 
 
-
-
-
-const openPreview = () => {
-  const uri = captureStagePreview(); // ← antes usabas captureStagePNG()
-  if (!uri) return;
-  setPreviewUrl(uri);
-  setPreviewOpen(true);
-};
-
-// //descarga la imagen del png 
-const downloadPNG = () => {
-  const uri = captureStagePNG();
-  if (!uri) return;
-  const a = document.createElement('a');
-  a.href = uri;
-  a.download = 'plantilla_preview.png';
-  a.click();
-};
 
 
 
@@ -1338,19 +1314,16 @@ const anchorCurrentAsClean = () => {
   // Ojo: aquí vamos a usar el snapshot actual para "congelar" estado guardado,
   // mismo patrón que usas en buildTemplateSnapshot.
   const badgeProjectName =
-    currentProjectBadge.name || selectedProjectName || "";
+    currentProjectBadge?.name || selectedProjectName || "";
   const badgePlaceName =
-    currentProjectBadge.place || labelInput || "";
+    currentProjectBadge?.place || labelInput || "";
 
-  const snap = buildTemplateSnapshot({
+ buildTemplateSnapshot({
     projectName: badgeProjectName,
     placeName: badgePlaceName,
   });
 
-  // No guardamos en ningún ref de comparación ahora (porque eliminaste lastSavedSnapshotRef),
-  // pero sí podemos resetear la idea visual de "dirty" si quieres en el futuro.
-  // Si no tienes estado isDirty ya, puedes ignorarlo.
-  // setIsDirty(false); // <- solo si mantienes isDirty en tu versión.
+
 };
 
 
@@ -1359,7 +1332,7 @@ const anchorCurrentAsClean = () => {
 
 const resetSwitch = () => {
   setPlateMode('sencilla');
-  setSelectedSuiche(dataSuiche.suiche4.image);               // suiche por defecto
+  setSelectedSuiche(dataSuiche.suiche4.image);              
   setSelectedCarcasaDoble('/assets/carcasas doble/carcasa1.png');
   setSelectedColor('#000000');                                // fondo por defecto
   setSelectedPlantillaSingle('04');
@@ -1378,8 +1351,9 @@ const resetSwitch = () => {
   return (
     <div className={styles.contenedor}>
       
-
-<div className={styles.contendor3}>
+    <div style={{  display: "grid", gridTemplateRows: "auto 1fr" }}>
+      <ProfileBar onClickHome={() => nav("/")} />
+     <div className={styles.contendor3}>
   <button
   className={styles.smallButton3}
   onClick={() => { 
@@ -1394,10 +1368,10 @@ const resetSwitch = () => {
   <button className={styles.smallButton3} onClick={handleSaveTemplateClick}>
      <Save  /> Guardar
   </button>
- 
-  {/* <button className={styles.smallButton2} onClick={openPreview} title="Ver imagen de la plantilla">
-    Ver previa
-  </button> */}
+
+</div>
+    </div>
+
 
 
 <button
@@ -1411,17 +1385,11 @@ const resetSwitch = () => {
 </button>
 
 
-</div>
-
-
-
-
-
 
 <Modal
-  title={
+ title={
     viewProjectId
-      ? `Proyecto: ${projects.find(p => p.id === viewProjectId)?.name || ''}`
+      ? `Proyecto: ${projects.find(p => p._id === viewProjectId)?.name || ''}`
       : "Proyectos"
   }
   isOpen={isProjectsModalOpen}
@@ -1446,7 +1414,7 @@ const resetSwitch = () => {
         <div style={{ fontSize: 13, opacity: .7 }}>Aún no hay proyectos.</div>
       ) : projects.map(p => (
         <label
-          key={p.id}
+          key={p._id}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1458,9 +1426,9 @@ const resetSwitch = () => {
           <input
             type="radio"
             name="proj"
-            checked={selectedProjectId === p.id}
+            checked={selectedProjectId === p._id}
             onChange={() => {
-              setSelectedProjectId(p.id);
+              setSelectedProjectId(p._id);
               setSelectedProjectName(p.name);
             }}
           />
@@ -1471,79 +1439,123 @@ const resetSwitch = () => {
             </div>
           </div>
 
-          <button
-            className={styles.smallButton2}
-            onClick={(e) => {
-              e.preventDefault();
-              const nn = prompt("Renombrar proyecto:", p.name);
-              if (nn && nn.trim()) {
-                renameProject(p.id, nn);
-                refreshProjects();
-                if (selectedProjectId === p.id) {
-                  setSelectedProjectName(nn.trim());
-                }
-              }
-            }}
-          >
-            Renombrar
-          </button>
+      <button
+  className={styles.smallButton2}
+  onClick={async (e) => {
+    e.preventDefault();
+    const nn = prompt("Renombrar proyecto:", p.name);
+    if (!nn || !nn.trim()) return;
 
-          <button
-            className={styles.smallButton2}
-            onClick={(e) => {
-              e.preventDefault();
-              if (confirm("¿Eliminar este proyecto y sus plantillas?")) {
-                deleteProject(p.id);
-                refreshProjects();
-                refreshSaved();
-                if (selectedProjectId === p.id) {
-                  setSelectedProjectId(null);
-                  setSelectedProjectName("");
-                }
-              }
-            }}
-            style={{ borderColor: '#ef4444', color: '#ef4444' }}
-          >
-            Eliminar
-          </button>
+    try {
+      await apiRenameProject(p._id, nn.trim());
+
+      // Si justo estamos parados sobre este proyecto como seleccionado,
+      // actualizamos también el nombre mostrado en el canvas
+      if (selectedProjectId === p._id) {
+        setSelectedProjectName(nn.trim());
+      }
+
+      // Y recargamos todo (proyectos + plantillas asociadas)
+      await refreshProjects();
+
+    } catch (err) {
+      console.error("Error renombrando proyecto:", err);
+      alert(err.message || "No se pudo renombrar el proyecto");
+    }
+  }}
+>
+  Renombrar
+</button>
+
+<button
+  className={styles.smallButton2}
+  onClick={async (e) => {
+    e.preventDefault();
+    const seguro = confirm("¿Eliminar este proyecto y TODAS sus plantillas?");
+    if (!seguro) return;
+
+    try {
+      await apiDeleteProject(p._id);
+
+      // Si justo estábamos parados en ese proyecto
+      if (selectedProjectId === p._id) {
+        setSelectedProjectId(null);
+        setSelectedProjectName("");
+      }
+
+      // Limpiamos el canvas si lo que estaba cargado pertenecía a este proyecto
+      if (currentProjectBadge.id === p._id) {
+        setCurrentRecordId(null);
+        setCurrentProjectBadge({ id: null, name: "", place: "" });
+        resetSwitch();
+      }
+
+      // Volvemos a cargar lista de proyectos y plantillas desde backend
+      await refreshProjects();
+
+    } catch (err) {
+      console.error("Error eliminando proyecto:", err);
+      alert(err.message || "No se pudo eliminar el proyecto");
+    }
+  }}
+  style={{ borderColor: '#ef4444', color: '#ef4444' }}
+>
+  Eliminar
+</button>
+
         </label>
       ))}
     </div>
 
-    {/* Crear proyecto nuevo */}
-    <div style={{ display: 'grid', gap: 8, marginTop: 8, marginBottom: 18 }}>
-      <div style={{ fontSize: 14, opacity: .8 }}>Nuevo Proyecto:</div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <input
-          type="text"
-          placeholder="Nombre del nuevo proyecto"
-          value={newProjectName}
-          onChange={(e) => setNewProjectName(e.target.value)}
-          style={{
-            flex: 1,
-            padding: '8px 10px',
-            borderRadius: 6,
-            border: '1px solid #ccc'
-          }}
-        />
-        <button
-          className={styles.smallButton}
-          onClick={() => {
-            if (!newProjectName.trim()) {
-              alert("Escribe un nombre de proyecto");
-              return;
-            }
-            const p = createProject(newProjectName);
-            refreshProjects();
-            setSelectedProjectId(p.id);
-            setSelectedProjectName(p.name);
-            setNewProjectName("");
-          }}
-        >
-          Crear
-        </button>
-      </div>
-    </div>
+  
+<div style={{ display: 'grid', gap: 8, marginTop: 8, marginBottom: 18 }}>
+  <div style={{ fontSize: 14, opacity: .8 }}>Nuevo Proyecto:</div>
+
+  <div style={{ display: 'flex', gap: 8 }}>
+    <input
+      type="text"
+      placeholder="Nombre del nuevo proyecto"
+      value={newProjectName}
+      onChange={(e) => setNewProjectName(e.target.value)}
+      style={{
+        flex: 1,
+        padding: '8px 10px',
+        borderRadius: 6,
+        border: '1px solid #ccc'
+      }}
+    />
+
+    <button
+      className={styles.smallButton}
+      onClick={async () => {
+        if (!newProjectName.trim()) {
+          alert("Escribe un nombre de proyecto");
+          return;
+        }
+
+        try {
+          const newProj = await apiCreateProject(newProjectName.trim());
+          
+
+          await refreshProjects(); 
+        
+          setSelectedProjectId(newProj._id);
+          setSelectedProjectName(newProj.name);
+
+          // limpia el input
+          setNewProjectName("");
+        } catch (err) {
+          console.error("Error creando proyecto:", err);
+          alert("No se pudo crear el proyecto");
+        }
+      }}
+    >
+      Crear
+    </button>
+    
+  </div>
+</div>
+
   </>
 )}
 
@@ -1563,64 +1575,68 @@ const resetSwitch = () => {
         </div>
       )}
 
-      {projects.map((p) => {
-        const items = savedList
-          .filter(r => r.projectId === p.id)
-          .sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt));
-        const last = items[0];
-        const hero = last?.previewThumb || last?.preview || null;
+ {projects.map((p) => {
+  const items = savedList
+    .filter(r => r.projectId === p._id) // ojo aquí
+    .sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt));
 
-        return (
-          <button
-            key={p.id}
-            onClick={() => setViewProjectId(p.id)}
+  const last = items[0];
+  const hero = last?.previewThumb || last?.preview || null;
+
+  return (
+    
+    <button
+      key={p._id}
+      onClick={() => setViewProjectId(p._id)}
+      style={{
+        textAlign: 'left',
+        border: '1px solid rgba(0,0,0,.10)',
+        borderRadius: 16,
+        overflow: 'hidden',
+        background: '#f3f1f1ff',
+        cursor: 'pointer',
+        padding: 0,
+        boxShadow: '0 6px 18px rgba(0,0,0,.06)'
+      }}
+    >
+      
+      <div style={{
+        height: 220,
+        background: '#b3b3b3ff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 10
+      }}>
+        {hero ? (
+          <img
+            src={hero}
+            alt=""
             style={{
-              textAlign: 'left',
-              border: '1px solid rgba(0,0,0,.10)',
-              borderRadius: 16,
-              overflow: 'hidden',
-              background: '#f3f1f1ff',
-              cursor: 'pointer',
-              padding: 0,
-              boxShadow: '0 6px 18px rgba(0,0,0,.06)'
+              maxWidth: '100%',
+              maxHeight: '100%',
+              display: 'block',
+              objectFit: 'contain'
             }}
-          >
-            <div style={{
-              height: 220,
-              background: '#b3b3b3ff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 10
-            }}>
-              {hero ? (
-                <img
-                  src={hero}
-                  alt=""
-                  style={{
-                    maxWidth: '100%',
-                    maxHeight: '100%',
-                    display: 'block',
-                    objectFit: 'contain'
-                  }}
-                  draggable={false}
-                />
-              ) : (
-                <div style={{ opacity: .6, fontSize: 13 }}>Sin imagen</div>
-              )}
-            </div>
-            <div style={{ padding: 12 }}>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
-              <div style={{ fontSize: 12, opacity: .7 }}>
-                {items.length} plantilla(s)
-              </div>
-              <div style={{ fontSize: 12, opacity: .55, marginTop: 4 }}>
-                Creado: {new Date(p.createdAt).toLocaleString()}
-              </div>
-            </div>
-          </button>
-        );
-      })}
+            draggable={false}
+          />
+        ) : (
+          <div style={{ opacity: .6, fontSize: 13 }}>Sin imagen</div>
+        )}
+      </div>
+      <div style={{ padding: 12 }}>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
+        <div style={{ fontSize: 12, opacity: .7 }}>
+          {items.length} plantilla(s)
+        </div>
+        <div style={{ fontSize: 12, opacity: .55, marginTop: 4 }}>
+          Creado: {p.createdAt ? new Date(p.createdAt).toLocaleString() : "—"}
+        </div>
+      </div>
+    </button>
+  );
+})}
+
     </div>
   ) : (
     // DETALLE DENTRO DE UN PROYECTO
@@ -1726,42 +1742,74 @@ const resetSwitch = () => {
                     color: "black"
                   }}
                 >
-                  <button
-                    className={styles.smallButton2}
-                    onClick={() => {
-                      applySnapshot(r.snapshot);
-                      setCurrentRecordId(r.id);
-                      setCurrentProjectBadge({
-                        id: r.projectId,
-                        name: r.projectName,
-                        place: r.placeName
-                      });
-                      setSelectedProjectId(r.projectId);
-                      setSelectedProjectName(r.projectName);
-                      setLabelInput(r.placeName);
-                      setProjectsModalOpen(false);
-                      setViewProjectId(null);
-                    }}
-                  >
-                    Cargar
-                  </button>
+           <button
+  className={styles.smallButton2}
+  onClick={async () => {
+    try {
+      const full = await fetchPlantillaById(r.id);
+
+      applySnapshot(full.snapshot);
+
+      setCurrentRecordId(full._id);
+      setCurrentProjectBadge({
+        id: full.projectId,
+        // usamos el nombre del proyecto que ya conocemos en memoria
+        name: r.projectName,
+        place: full.placeName
+      });
+
+      setSelectedProjectId(full.projectId);
+      setSelectedProjectName(r.projectName);
+      setLabelInput(full.placeName);
+
+      setProjectsModalOpen(false);
+      setViewProjectId(null);
+    } catch (err) {
+      console.error("Error cargando plantilla completa:", err);
+      alert("No se pudo cargar la plantilla");
+    }
+  }}
+>
+  Cargar
+</button>
 
 
-                  <button
-                    className={styles.smallButton2}
-                    onClick={() => {
-                      if (confirm('¿Eliminar esta plantilla del proyecto?')) {
-                        deleteRecord(r.id);
-                        refreshSaved();
-                      }
-                    }}
-                    style={{
-                      borderColor: '#ef4444',
-                      color: '#ef4444'
-                    }}
-                  >
-                    Eliminar
-                  </button>
+
+<button
+  className={styles.smallButton2}
+  onClick={async () => {
+    const seguro = confirm('¿Eliminar esta plantilla del proyecto?');
+    if (!seguro) return;
+
+    try {
+      await apiDeletePlantilla(r.id);
+
+      // Si la que borramos era la actualmente cargada en el canvas,
+      // limpiamos referencias para evitar incoherencias
+      if (currentRecordId === r.id) {
+        setCurrentRecordId(null);
+        setCurrentProjectBadge({ id: null, name: "", place: "" });
+        // opcional: podríamos también hacer resetSwitch() aquí,
+        // para sacar del canvas lo que estaba cargado
+        resetSwitch();
+      }
+
+      // Volvemos a pedirle al backend la lista de proyectos + plantillas
+      await refreshProjects();
+    } catch (err) {
+      console.error("Error eliminando plantilla:", err);
+      alert("No se pudo eliminar la plantilla.");
+    }
+  }}
+  style={{
+    borderColor: '#ef4444',
+    color: '#ef4444'
+  }}
+>
+  Eliminar
+</button>
+
+
                 </div>
               </div>
             </div>
@@ -1773,49 +1821,7 @@ const resetSwitch = () => {
 
 
 
-{isPreviewOpen && (
-  <div
-    role="dialog"
-    aria-modal="false"
-    style={{
-      position: 'fixed',
-      top: 24,
-      right: 24,
-      width: 340,
-      maxHeight: '80vh',
-      background: modalVariant === 'dark' ? '#111' : '#fff',
-      color: modalVariant === 'dark' ? '#fff' : '#111',
-      boxShadow: '0 10px 30px rgba(0,0,0,.25)',
-      borderRadius: 14,
-      border: '1px solid rgba(0,0,0,.15)',
-      overflow: 'hidden',
-      zIndex: 9999,
-      display: 'flex',
-      flexDirection: 'column'
-    }}
-  >
-    <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(0,0,0,.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <strong style={{ fontSize: 14 }}>Previsualización</strong>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className={styles.smallButton2} onClick={downloadPNG}>Descargar PNG</button>
-        <button className={styles.smallButton2} onClick={() => setPreviewOpen(false)}>Cerrar</button>
-      </div>
-    </div>
 
-    <div style={{ padding: 12, overflow: 'auto' }}>
-      {previewUrl ? (
-        <img
-          src={previewUrl}
-          alt="Vista previa de la plantilla"
-          style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 8 }}
-          draggable={false}
-        />
-      ) : (
-        <div style={{ opacity: .7, fontSize: 13 }}>No hay imagen disponible.</div>
-      )}
-    </div>
-  </div>
-)}
 <Modal
   title="Nombre del proyecto"
   isOpen={isProjectNameModalOpen}
@@ -1889,7 +1895,7 @@ const resetSwitch = () => {
           <div style={{ fontSize: 13, opacity: .7 }}>Aún no hay proyectos.</div>
         ) : projects.map(p => (
           <label
-            key={p.id}
+            key={p._id}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -1901,9 +1907,9 @@ const resetSwitch = () => {
             <input
               type="radio"
               name="proj"
-              checked={selectedProjectId === p.id}
+              checked={selectedProjectId === p._id}
               onChange={() => { 
-                setSelectedProjectId(p.id);
+                setSelectedProjectId(p._id);
                 setSelectedProjectName(p.name);
               }}
             />
@@ -2445,3 +2451,4 @@ const resetSwitch = () => {
 };
 
 export default DesignerCanvas;
+const cta = { padding: "10px 14px", background: "#00c2a8", color: "#111", border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 700 };
