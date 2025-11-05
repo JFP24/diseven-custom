@@ -1,5 +1,5 @@
 // src/lib/api.js
-const API_BASE = import.meta.env.VITE_API_BASE || "http://custom.disevenapp.com/api/v1";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://custom.disevenapp.com/api/";
 
 function authHeaders() {
   const t = localStorage.getItem("token");
