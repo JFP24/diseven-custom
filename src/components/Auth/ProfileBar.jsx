@@ -27,6 +27,9 @@ export default function ProfileBar({ onClickHome }) {
           <div className={styles.name}>{user.username || "Usuario"}</div>
           <div className={styles.email}>{user.email}</div>
         </div>
+{user?.guest && (
+  <div style={{ fontSize: 12, color: "#facc15" }}>Modo Invitado</div>
+)}
 
         {menuOpen && (
           <div className={styles.logoutMenu}>

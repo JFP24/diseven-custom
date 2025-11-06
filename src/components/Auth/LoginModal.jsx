@@ -6,8 +6,7 @@ import styles from "./loginModal.module.css";
 
 export default function LoginModal({ open, onClose }) {
   const nav = useNavigate();
-  const { user, login, register } = useAuth();
-  const [mode, setMode] = useState("login"); // login | register | invitado
+const { user, login, register, logout, loginAsGuest } = useAuth();  const [mode, setMode] = useState("login"); // login | register | invitado
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -40,26 +39,28 @@ export default function LoginModal({ open, onClose }) {
 
   if (!open) return null;
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    try {
-      setError("");
-      setLoading(true);
-      if (mode === "login") {
-        await login(email, password);
-      } else if (mode === "register") {
-        await register(username, email, password);
-      } else {
-        // Invitado: solo navega al designer (o implementar guest-token luego)
-        onClose?.();
-        nav("/designer");
-      }
-    } catch (err) {
-      setError(err.message || "Error de autenticación");
-    } finally {
-      setLoading(false);
+async function handleSubmit(e) {
+  e.preventDefault();
+  try {
+    setError("");
+    setLoading(true);
+
+    if (mode === "login") {
+      await login(email, password);
+    } else if (mode === "register") {
+      await register(username, email, password);
+    } else if (mode === "invitado") {
+      loginAsGuest();               // ✅ establece modo invitado
+      onClose?.();
+      nav("/designer");
     }
+  } catch (err) {
+    setError(err.message || "Error de autenticación");
+  } finally {
+    setLoading(false);
   }
+}
+
 
   return (
     <div className={styles.authOverlay} onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>

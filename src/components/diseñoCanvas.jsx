@@ -576,6 +576,10 @@ const [newProjectName, setNewProjectName] = useState("");
 
 const refreshProjects = useCallback(async () => {
   try {
+    if (user?.guest) {
+  console.warn("Modo invitado: no se cargan proyectos.");
+  return;
+}
     // 1. Traer proyectos desde backend
     const list = await apiFetchProjects();
     setProjects(list);
@@ -1533,6 +1537,10 @@ const resetSwitch = () => {
         }
 
         try {
+          if (user?.guest) {
+  alert("En modo invitado no se puede guardar. ¡Crea una cuenta para hacerlo!");
+  return;
+}
           const newProj = await apiCreateProject(newProjectName.trim());
           
 

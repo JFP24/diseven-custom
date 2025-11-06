@@ -24,24 +24,23 @@ export function AuthProvider({ children }) {
   }
 
   // Carga inicial de sesión + escucha cambios de token en otras pestañas
-  useEffect(() => {
-    refreshMe()
-      .catch(() => {}) // ya limpiamos arriba
-      .finally(() => setReady(true));
+useEffect(() => {
+  const t = localStorage.getItem("token");
+  const isGuest = localStorage.getItem("guest");
 
-    const onStorage = (e) => {
-      if (e.key !== "token") return;
-      if (!e.newValue) {
-        // logout en otra pestaña
-        setUser(null);
-      } else {
-        // login/refresh en otra pestaña
-        refreshMe().catch(() => {});
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  if (t) {
+    apiGet("/auth/me")
+      .then(u => setUser(u))
+      .catch(() => localStorage.removeItem("token"))
+      .finally(() => setReady(true));
+  } else if (isGuest) {
+    loginAsGuest(); // ← simula usuario invitado
+    setReady(true);
+  } else {
+    setReady(true);
+  }
+}, []);
+
 
   async function login(email, password) {
     // eslint-disable-next-line no-useless-catch
@@ -68,10 +67,23 @@ export function AuthProvider({ children }) {
     }
   }
 
-  function logout() {
-    localStorage.removeItem("token");
-    setUser(null);
-  }
+function logout() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("guest");
+  setUser(null);
+}
+
+
+  function loginAsGuest() {
+  const guestUser = {
+    username: "Invitado",
+    email: "invitado@diseven.com",
+    guest: true,
+  };
+  setUser(guestUser);
+  localStorage.setItem("guest", "1");
+}
+
 
   const value = useMemo(() => ({
     user,
@@ -81,6 +93,7 @@ export function AuthProvider({ children }) {
     register,
     logout,
     refreshMe,
+    loginAsGuest
   }), [user, ready]);
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
