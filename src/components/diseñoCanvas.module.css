@@ -1,6 +1,6 @@
 
 .contenedor {
-  height: 100%;
+
   width: 100%;
   overflow: hidden;         
     font-family: 'Montserrat', sans-serif;
@@ -29,11 +29,11 @@
 .layout {
   display: grid;
   grid-template-columns: minmax(260px, 320px) 1fr; /* flexible */
-  min-height: 100dvh;
+  min-height: 93dvh;
   width: 100%;
 
   overflow: hidden;
- background: linear-gradient(180deg, #b9b8b8 0%, #d4e6f0 100%);}
+ background: linear-gradient(180deg, #b9b8b8 0%, #5f5f5f 100%);}
 
 
 .layout * {
@@ -107,13 +107,13 @@ height: 750px;
   padding: 18px;
   box-shadow: var(--sh-md);
   background: var(--bg-elev);
-  width: min(100%, 1200px);
+  width: min(100%, 1250px);
 height: 0; 
  margin-inline:auto;
   display:flex;
   border:1px solid var(--line);
   position: relative;
-  bottom: 20px;
+  bottom: 90px;
 }
 
 
@@ -481,7 +481,7 @@ height: 0;
 .toolbarLabel {
   font-weight: 600;
   font-size: 12px;
-  color: #64748b;
+  color: #000000;
   text-transform: uppercase;
   margin-bottom: 10px;
 
@@ -490,11 +490,13 @@ height: 0;
 .swatchesRow {
   display: flex;
   gap: 14px;
+ 
 }
 
 .toggleRow {
   display: flex;
   gap: 15px;
+   color: #000;
 }
 
 /* Botón pequeño (para editor de texto del icono) */
@@ -526,6 +528,7 @@ margin-left: 10px;}
   display: flex;
   flex-direction: column;
   gap: 6px;
+  color: #000;
 }
 
 .swatchCircle {
@@ -534,7 +537,7 @@ margin-left: 10px;}
   border-radius: 50%;
   border: 1px solid #e5e7eb;
   cursor: pointer;
-  background: #e63838;
+   color: #000;
   display: inline-block;
 }
 .swatchCircleActive {
@@ -542,8 +545,8 @@ margin-left: 10px;}
 }
 
 .swatchText {
-  font-size: 11px;
-  color: #475569;
+  font-size: 15px;
+   color: #000;
 }
 
 /* ===========================

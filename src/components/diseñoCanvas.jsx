@@ -764,7 +764,7 @@ const saveTemplateNow = async () => {
     if (shouldUpdate) {
       // === UPDATE EXISTENTE (PUT) ===
   // PUT (update)
-response = await fetch(`${API_BASE}/plantilla/${currentRecordId}`, {
+response = await fetch(`${API_BASE}/api/v1/plantilla/${currentRecordId}`, {
   method: "PUT",
   headers: authHeaders({ "Content-Type": "application/json" }),
   body: JSON.stringify({ projectId, placeName: placeInput, plateMode, preview: previewFull, previewThumb: thumbSmall, snapshot }),
@@ -798,12 +798,12 @@ response = await fetch(`${API_BASE}/plantilla/${currentRecordId}`, {
 
       data = await response.json();
 
-      if (response.status === 409) {
-        // Chocaste con otra que ya existe con ese nombre y proyecto
-        // Esto puede pasar si es "nueva" pero eligieron un nombre repetido
-        alert("Ya existe una placa con ese nombre en este proyecto.");
-        return;
-      }
+      // if (response.status === 409) {
+      //   // Chocaste con otra que ya existe con ese nombre y proyecto
+      //   // Esto puede pasar si es "nueva" pero eligieron un nombre repetido
+      //   alert("Ya existe una placa con ese nombre en este proyecto.");
+      //   return;
+      // }
 
       if (!response.ok) {
         console.error("Error creando plantilla:", data);
@@ -2450,4 +2450,3 @@ const resetSwitch = () => {
 };
 
 export default DesignerCanvas;
-const cta = { padding: "10px 14px", background: "#00c2a8", color: "#111", border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 700 };
