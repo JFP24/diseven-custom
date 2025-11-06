@@ -334,9 +334,8 @@ function useContainerSize() {
 const DESIGN_W = 1100;
 const DESIGN_H = 900;
 
-// BASE URL de tu API
-// BASE URL de tu API
-const API_BASE = import.meta.env?.VITE_API_BASE || "http://custom.disevenapp.com/api:3000/api/v1";
+
+const API_BASE = import.meta.env?.VITE_API_BASE || "https://custom.disevenapp.com/api";
 
 // Helper: Authorization: Bearer <token>
 function authHeaders(extra = {}) {
@@ -361,7 +360,7 @@ async function handle(res) {
 
 // Obtener todos los proyectos desde Mongo
 async function apiFetchProjects() {
-  const res = await fetch(`${API_BASE}/proyectos`, {
+  const res = await fetch(`${API_BASE}/api/v1/proyectos`, {
     method: "GET",
     headers: authHeaders()
   });
@@ -372,7 +371,7 @@ async function apiFetchProjects() {
 
 // Crear un proyecto nuevo en Mongo
 async function apiCreateProject(name) {
-  const res = await fetch(`${API_BASE}/crearProyecto`, {
+  const res = await fetch(`${API_BASE}/api/v1/crearProyecto`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ name }),
@@ -383,14 +382,14 @@ async function apiCreateProject(name) {
 
 
 async function fetchPlantillasByProject(projectId) {
-  const res = await fetch(`${API_BASE}/plantillas/${projectId}`, {
+  const res = await fetch(`${API_BASE}/api/v1/plantillas/${projectId}`, {
     headers: authHeaders()
   });
   return handle(res); // { projectId, count, plantillas: [...] }
 }
 
 async function fetchPlantillaById(id) {
-  const res = await fetch(`${API_BASE}/plantilla/${id}`, {
+  const res = await fetch(`${API_BASE}/api/v1/plantilla/${id}`, {
     headers: authHeaders()
   });
   const data = await handle(res); // { message, data }
@@ -399,7 +398,7 @@ async function fetchPlantillaById(id) {
 
 
 async function apiDeletePlantilla(id) {
-  const res = await fetch(`${API_BASE}/plantilla/${id}`, {
+  const res = await fetch(`${API_BASE}/api/v1/plantilla/${id}`, {
     method: "DELETE",
     headers: authHeaders()
   });
@@ -407,7 +406,7 @@ async function apiDeletePlantilla(id) {
 }
 
 async function apiRenameProject(id, newName) {
-  const res = await fetch(`${API_BASE}/proyecto/${id}`, {
+  const res = await fetch(`${API_BASE}/api/v1/proyecto/${id}`, {
     method: "PUT",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ name: newName }),
@@ -417,7 +416,7 @@ async function apiRenameProject(id, newName) {
 }
 
 async function apiDeleteProject(id) {
-  const res = await fetch(`${API_BASE}/proyecto/${id}`, {
+  const res = await fetch(`${API_BASE}/api/v1/proyecto/${id}`, {
     method: "DELETE",
     headers: authHeaders()
   });
@@ -791,7 +790,7 @@ response = await fetch(`${API_BASE}/plantilla/${currentRecordId}`, {
 
     } else {
       // === CREAR NUEVA (POST) ===
-  response = await fetch(`${API_BASE}/crearPlantilla`, { // <- si tu backend usa POST /crearPlantilla; si no, deja /crearPlantilla y crea ese alias en backend o cambia aquí a la ruta que tengas
+  response = await fetch(`${API_BASE}/api/v1/crearPlantilla`, { // <- si tu backend usa POST /crearPlantilla; si no, deja /crearPlantilla y crea ese alias en backend o cambia aquí a la ruta que tengas
   method: "POST",
   headers: authHeaders({ "Content-Type": "application/json" }),
   body: JSON.stringify({ projectId, placeName: placeInput, plateMode, preview: previewFull, previewThumb: thumbSmall, snapshot }),

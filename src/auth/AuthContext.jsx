@@ -13,7 +13,7 @@ export function AuthProvider({ children }) {
     const t = localStorage.getItem("token");
     if (!t) { setUser(null); return; }
     try {
-      const u = await apiGet("/auth/me");
+      const u = await apiGet("/api/v1/auth/me");
       setUser(u);
     } catch (err) {
       // si /auth/me falla (token inválido/expirado), limpiamos
@@ -46,7 +46,7 @@ export function AuthProvider({ children }) {
   async function login(email, password) {
     // eslint-disable-next-line no-useless-catch
     try {
-      const { token, user } = await apiPost("api/v1/auth/login", { email, password });
+      const { token, user } = await apiPost("/api/v1/auth/login", { email, password });
       localStorage.setItem("token", token);
       setUser(user);
       return user;
@@ -59,7 +59,7 @@ export function AuthProvider({ children }) {
   async function register(username, email, password) {
     // eslint-disable-next-line no-useless-catch
     try {
-      const { token, user } = await apiPost("api/v1/auth/register", { username, email, password });
+      const { token, user } = await apiPost("/v1/auth/register", { username, email, password });
       localStorage.setItem("token", token);
       setUser(user);
       return user;
