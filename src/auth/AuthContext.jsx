@@ -59,7 +59,7 @@ export function AuthProvider({ children }) {
   async function register(username, email, password) {
     // eslint-disable-next-line no-useless-catch
     try {
-      const { token, user } = await apiPost("/v1/auth/register", { username, email, password });
+      const { token, user } = await apiPost("/api/v1/auth/register", { username, email, password });
       localStorage.setItem("token", token);
       setUser(user);
       return user;
