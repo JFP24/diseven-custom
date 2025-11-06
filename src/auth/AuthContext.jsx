@@ -29,7 +29,7 @@ useEffect(() => {
   const isGuest = localStorage.getItem("guest");
 
   if (t) {
-    apiGet("/auth/me")
+    apiGet("/api/v1/auth/me")
       .then(u => setUser(u))
       .catch(() => localStorage.removeItem("token"))
       .finally(() => setReady(true));
