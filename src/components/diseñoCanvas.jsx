@@ -8,6 +8,7 @@ import { FolderKanban, Save, RotateCcw } from "lucide-react";
 import ProfileBar from "./Auth/ProfileBar.jsx";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
+import Swal from 'sweetalert2';
 
 // Reemplaza la firma y el useImage:
 // Reemplaza TU IconWithLabel completo por este:
@@ -576,8 +577,16 @@ const [newProjectName, setNewProjectName] = useState("");
 
 const refreshProjects = useCallback(async () => {
   try {
-    if (user?.guest) {
-  console.warn("Modo invitado: no se cargan proyectos.");
+if (user?.guest) {
+  Swal.fire({
+    title: 'Acción no permitida',
+    text: 'En modo invitado no se puede guardar. ¡Crea una cuenta para hacerlo!',
+    icon: 'warning',
+    confirmButtonText: 'Entendido',
+    background: '#1e293b',      // estilo oscuro
+    color: '#fff',
+    confirmButtonColor: '#0fa2da'
+  });
   return;
 }
     // 1. Traer proyectos desde backend
@@ -1537,8 +1546,16 @@ const resetSwitch = () => {
         }
 
         try {
-          if (user?.guest) {
-  alert("En modo invitado no se puede guardar. ¡Crea una cuenta para hacerlo!");
+if (user?.guest) {
+  Swal.fire({
+    title: 'Acción no permitida',
+    text: 'En modo invitado no se puede guardar. ¡Crea una cuenta para hacerlo!',
+    icon: 'warning',
+    confirmButtonText: 'Entendido',
+    background: '#1e293b',      // estilo oscuro
+    color: '#fff',
+    confirmButtonColor: '#0fa2da'
+  });
   return;
 }
           const newProj = await apiCreateProject(newProjectName.trim());

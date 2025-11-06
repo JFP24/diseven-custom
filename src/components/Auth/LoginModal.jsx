@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import styles from "./loginModal.module.css";
+import Swal from 'sweetalert2';
 
 export default function LoginModal({ open, onClose }) {
   const nav = useNavigate();
@@ -50,10 +51,19 @@ async function handleSubmit(e) {
     } else if (mode === "register") {
       await register(username, email, password);
     } else if (mode === "invitado") {
-      loginAsGuest();               // ✅ establece modo invitado
-      onClose?.();
-      nav("/designer");
-    }
+  loginAsGuest();
+  onClose?.();
+  Swal.fire({
+    icon: 'info',
+    title: 'Modo Invitado',
+    text: 'Estás en modo visualización. Los cambios no se guardarán.',
+    confirmButtonColor: '#3085d6',
+    confirmButtonText: 'Entendido'
+  }).then(() => {
+    nav("/designer");
+  });
+}
+
   } catch (err) {
     setError(err.message || "Error de autenticación");
   } finally {
