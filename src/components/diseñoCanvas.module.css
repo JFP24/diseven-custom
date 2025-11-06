@@ -107,7 +107,7 @@ height: 750px;
   padding: 18px;
   box-shadow: var(--sh-md);
   background: var(--bg-elev);
-  width: min(100%, 1250px);
+  width: min(100%, 1100px);
 height: 0; 
  margin-inline:auto;
   display:flex;
