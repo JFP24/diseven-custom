@@ -532,8 +532,12 @@ const getPlantillaPath = (id) =>
 const [plantillaSingle] = useImage(getPlantillaPath(selectedPlantillaSingle));
 const [plantillaLeft]   = useImage(getPlantillaPath(selectedPlantillaLeft));
 const [plantillaRight]  = useImage(getPlantillaPath(selectedPlantillaRight));
-const [carcasaSingle]   = useImage(selectedSuiche);
-const [carcasaDoble]    = useImage(selectedCarcasaDoble);
+const [carcasaSingle, carcasaSingleStatus] = useImage(selectedSuiche);
+const [carcasaDoble, carcasaDobleStatus]   = useImage(selectedCarcasaDoble);
+const isLoadingImage = 
+  (plateMode === 'sencilla' && carcasaSingleStatus === 'loading') ||
+  (plateMode === 'doble' && carcasaDobleStatus === 'loading');
+
 
 // SLOTS por área
 const slotsSingle = getSlotsForArea(SINGLE_PLATE, selectedPlantillaSingle) || [];
@@ -2259,6 +2263,32 @@ const resetSwitch = () => {
           <div className={styles.workbench}>
             
             <div className={styles.canvasPane}>
+              {isLoadingImage && (
+<div style={{
+  position: 'absolute',
+  top: '50%',
+  left: '50%',
+  transform: 'translate(-50%, -50%)',
+  width: 240,
+  height: 120,
+  background: 'rgba(255, 255, 255, 0.9)',
+  borderRadius: 12,
+  zIndex: 50,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  textAlign: 'center',
+  fontSize: 16,
+  fontWeight: 500,
+  color: '#1f2937', // tono gris oscuro más moderno
+  boxShadow: '0 6px 20px rgba(0,0,0,0.1)'
+}}>
+  <div className={styles.spinner} />
+  <span style={{ marginTop: 10 }}>Cargando imagen...</span>
+</div>
+
+)}
              <div ref={canvasHostRef} className={styles.canvasCard}>
     <Stage
     ref={stageRef}
@@ -2371,6 +2401,7 @@ const resetSwitch = () => {
       </>
     )}
   </Layer>
+
 </Stage>
 
 {editingIconId && (
@@ -2395,6 +2426,9 @@ const resetSwitch = () => {
     onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(); }}
   />
 )}
+
+
+
 
               </div>
 
