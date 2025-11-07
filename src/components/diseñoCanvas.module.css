@@ -80,7 +80,7 @@
   margin: 16px;
   padding: 30px;
   width: 350px;
-height: 750px;
+height: 650px;
   border-radius: 16px; 
 
   /* background: #ffffff;        */
@@ -970,21 +970,20 @@ right: 200px;
 
 .smallButton2reset {
   position: absolute;
-  top: 80px;
-  left: 550px;
+  top: 110px;
+  left: 380px;
   z-index: 50; /* asegura que esté sobre otros elementos */
 
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+padding: 8px;
 
-  padding: 1px 4px;
-  min-width: 90px;
 
   border-radius: 8px;
   border: 1px solid rgba(185, 28, 28, 0.18);
-  background: linear-gradient(180deg, #fff6f6 0%, #fde8e8 100%);
+  /* background: linear-gradient(180deg, #fff6f6 0%, #fde8e8 100%); */
   color: #b91c1c;
  
   font-size: 14px;

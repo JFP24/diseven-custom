@@ -72,8 +72,8 @@ const dataSuiche = {
   suiche11: { image: '/assets/suichesSencillo/suiche11.png', cssClass: 'brushedWhite', label: 'Blanca Cepillado' },
   suiche12: { color: '#D49A06', image: '/assets/suichesSencillo/suiche12.png', label: 'Dorada ' },
   suiche13: { color: '#818181', image: '/assets/suichesSencillo/suiche13.png', label: 'Gris Lisa' },
-  suiche14: { color: '#cbc6a3', image: '/assets/suichesSencillo/suiche14.png', label: 'Ivory' },
-  suiche15: { color: '#ece8d2', image: '/assets/suichesSencillo/suiche15.png', label: 'Light Almond' },
+  suiche14: { color: '#cbc6a3', image: '/assets/suichesSencillo/suiche14.png', label: 'Marfil' },
+  suiche15: { color: '#ece8d2', image: '/assets/suichesSencillo/suiche15.png', label: 'Almendra clara' },
   suiche16: { color: '#a4948e', image: '/assets/suichesSencillo/suiche16.png', label: 'Niquel' },
   suiche17: { color: '#D3D3D3', image: '/assets/suichesSencillo/suiche17.png', label: 'Plateada' },
   suiche18: { color: '#504f4e', image: '/assets/suichesSencillo/suiche18.png', label: 'Gris Espacial' },
@@ -739,15 +739,16 @@ const saveTemplateNow = async () => {
   const projectNameClean = (selectedProjectName || "").trim();
   const placeInput = (labelInput || "").trim(); // lo que el usuario está escribiendo ahora
 
-  if (!projectId || !projectNameClean) {
-    alert("Primero selecciona o crea un proyecto");
-    return;
-  }
-  
-  if (!placeInput) {
-    alert("Escribe el nombre del lugar");
-    return;
-  }
+if (!projectId || !projectNameClean) {
+  Swal.fire("Proyecto no válido", "Primero selecciona o crea un proyecto", "warning");
+  return;
+}
+
+if (!placeInput) {
+  Swal.fire("Falta el nombre", "Escribe el nombre del lugar", "info");
+  return;
+}
+
 
   // Estado lógico actual del canvas (toda la info necesaria para snapshot)
   const snapshot = buildTemplateSnapshot({
@@ -785,13 +786,14 @@ response = await fetch(`${API_BASE}/api/v1/plantilla/${currentRecordId}`, {
 
       data = await response.json();
 
-      if (!response.ok) {
-        console.error("Error actualizando plantilla:", data);
-        alert("No se pudo actualizar la plantilla.");
-        return;
-      }
+  if (!response.ok) {
+  console.error("Error actualizando plantilla:", data);
+  Swal.fire("Error", "No se pudo actualizar la plantilla.", "error");
+  return;
+}
 
-      console.log("✅ Plantilla actualizada:", data);
+
+    //  console.log("✅ Plantilla actualizada:", data);
 
       // Mantenemos el mismo currentRecordId
       setCurrentRecordId(currentRecordId);
@@ -817,14 +819,13 @@ response = await fetch(`${API_BASE}/api/v1/plantilla/${currentRecordId}`, {
       //   alert("Ya existe una placa con ese nombre en este proyecto.");
       //   return;
       // }
+if (!response.ok) {
+  console.error("Error creando plantilla:", data);
+  Swal.fire("Error", "No se pudo crear la plantilla nueva.", "error");
+  return;
+}
 
-      if (!response.ok) {
-        console.error("Error creando plantilla:", data);
-        alert("No se pudo crear la plantilla nueva.");
-        return;
-      }
 
-      console.log("✅ Plantilla creada:", data);
 
       // Como es nueva, ahora sí actualizamos currentRecordId al nuevo _id
       const created = data.data;
@@ -847,6 +848,15 @@ response = await fetch(`${API_BASE}/api/v1/plantilla/${currentRecordId}`, {
 
     // Reset visual de placa (tú lo querías así)
     resetSwitch();
+
+    Swal.fire({
+  icon: "success",
+  title: "¡Plantilla guardada!",
+  text: shouldUpdate ? "Los cambios fueron actualizados." : "La plantilla fue creada correctamente.",
+  timer: 1800,
+  showConfirmButton: false
+});
+
 
   } catch (err) {
     console.error("❌ Error guardando plantilla:", err);
@@ -1393,7 +1403,7 @@ const resetSwitch = () => {
   title="Reiniciar suiche"
 >
   <img src={reloadIcon} alt="reload template"  className={styles.imagenR}/>
-  <p>Reset</p>
+ 
 </button>
 
 
@@ -1451,69 +1461,114 @@ const resetSwitch = () => {
             </div>
           </div>
 
-      <button
+  <button
   className={styles.smallButton2}
   onClick={async (e) => {
     e.preventDefault();
-    const nn = prompt("Renombrar proyecto:", p.name);
-    if (!nn || !nn.trim()) return;
+
+    const { value: newName } = await Swal.fire({
+      title: "Renombrar proyecto",
+      input: "text",
+      inputLabel: "Nuevo nombre",
+      inputValue: p.name,
+      inputPlaceholder: "Nombre del proyecto",
+      showCancelButton: true,
+      confirmButtonText: "Guardar",
+      cancelButtonText: "Cancelar",
+      inputValidator: (value) => {
+        if (!value || !value.trim()) return "Debes escribir un nombre";
+        return null;
+      },
+    });
+
+    if (!newName || !newName.trim()) return;
 
     try {
-      await apiRenameProject(p._id, nn.trim());
+      await apiRenameProject(p._id, newName.trim());
 
-      // Si justo estamos parados sobre este proyecto como seleccionado,
-      // actualizamos también el nombre mostrado en el canvas
       if (selectedProjectId === p._id) {
-        setSelectedProjectName(nn.trim());
+        setSelectedProjectName(newName.trim());
       }
 
-      // Y recargamos todo (proyectos + plantillas asociadas)
       await refreshProjects();
+
+      Swal.fire({
+        icon: "success",
+        title: "Proyecto renombrado",
+        text: "El nombre se actualizó correctamente.",
+        timer: 1800,
+        showConfirmButton: false
+      });
 
     } catch (err) {
       console.error("Error renombrando proyecto:", err);
-      alert(err.message || "No se pudo renombrar el proyecto");
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err.message || "No se pudo renombrar el proyecto.",
+      });
     }
   }}
 >
   Renombrar
 </button>
 
+
 <button
   className={styles.smallButton2}
   onClick={async (e) => {
     e.preventDefault();
-    const seguro = confirm("¿Eliminar este proyecto y TODAS sus plantillas?");
-    if (!seguro) return;
+
+    const { isConfirmed } = await Swal.fire({
+      title: "¿Estás seguro?",
+      text: "Esto eliminará el proyecto y TODAS sus plantillas.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#999",
+      confirmButtonText: "Sí, eliminar",
+      cancelButtonText: "Cancelar"
+    });
+
+    if (!isConfirmed) return;
 
     try {
       await apiDeleteProject(p._id);
 
-      // Si justo estábamos parados en ese proyecto
       if (selectedProjectId === p._id) {
         setSelectedProjectId(null);
         setSelectedProjectName("");
       }
 
-      // Limpiamos el canvas si lo que estaba cargado pertenecía a este proyecto
       if (currentProjectBadge.id === p._id) {
         setCurrentRecordId(null);
         setCurrentProjectBadge({ id: null, name: "", place: "" });
         resetSwitch();
       }
 
-      // Volvemos a cargar lista de proyectos y plantillas desde backend
       await refreshProjects();
 
+      Swal.fire({
+        icon: "success",
+        title: "Proyecto eliminado",
+        text: "El proyecto y sus plantillas han sido eliminados.",
+        timer: 1800,
+        showConfirmButton: false
+      });
     } catch (err) {
       console.error("Error eliminando proyecto:", err);
-      alert(err.message || "No se pudo eliminar el proyecto");
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err.message || "No se pudo eliminar el proyecto",
+      });
     }
   }}
-  style={{ borderColor: '#ef4444', color: '#ef4444' }}
+  style={{ borderColor: "#ef4444", color: "#ef4444" }}
 >
   Eliminar
 </button>
+
 
         </label>
       ))}
@@ -1537,45 +1592,73 @@ const resetSwitch = () => {
       }}
     />
 
-    <button
-      className={styles.smallButton}
-      onClick={async () => {
-        if (!newProjectName.trim()) {
-          alert("Escribe un nombre de proyecto");
-          return;
-        }
+  <button
+  className={styles.smallButton}
+  onClick={async () => {
+    const nombreLimpio = newProjectName.trim();
 
-        try {
-if (user?.guest) {
-  Swal.fire({
-    title: 'Acción no permitida',
-    text: 'En modo invitado no se puede guardar. ¡Crea una cuenta para hacerlo!',
-    icon: 'warning',
-    confirmButtonText: 'Entendido',
-    background: '#1e293b',      // estilo oscuro
-    color: '#fff',
-    confirmButtonColor: '#0fa2da'
-  });
-  return;
-}
-          const newProj = await apiCreateProject(newProjectName.trim());
-          
+    if (!nombreLimpio) {
+      Swal.fire({
+        title: 'Campo vacío',
+        text: 'Escribe un nombre de proyecto.',
+        icon: 'warning',
+        confirmButtonText: 'OK',
+        background: '#ffffffff',
+        color: '#111111ff',
+        confirmButtonColor: '#0fa2da',
+      });
+      return;
+    }
 
-          await refreshProjects(); 
-        
-          setSelectedProjectId(newProj._id);
-          setSelectedProjectName(newProj.name);
+    // Modo invitado no permite guardar
+    if (user?.guest) {
+      Swal.fire({
+        title: 'Acción no permitida',
+        text: 'En modo invitado no se puede guardar. ¡Crea una cuenta para hacerlo!',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        background: '#1e293b',
+        color: '#fff',
+        confirmButtonColor: '#0fa2da',
+      });
+      return;
+    }
 
-          // limpia el input
-          setNewProjectName("");
-        } catch (err) {
-          console.error("Error creando proyecto:", err);
-          alert("No se pudo crear el proyecto");
-        }
-      }}
-    >
-      Crear
-    </button>
+    try {
+      const nuevoProyecto = await apiCreateProject(nombreLimpio);
+
+      await refreshProjects();
+
+      setSelectedProjectId(nuevoProyecto._id);
+      setSelectedProjectName(nuevoProyecto.name);
+      setNewProjectName("");
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Proyecto creado',
+        text: 'El proyecto se creó correctamente.',
+        timer: 1600,
+        showConfirmButton: false,
+        background: '#1e293b',
+        color: '#fff',
+      });
+
+    } catch (err) {
+      console.error("Error creando proyecto:", err);
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: err.message || 'No se pudo crear el proyecto.',
+        background: '#1e293b',
+        color: '#fff',
+        confirmButtonColor: '#0fa2da',
+      });
+    }
+  }}
+>
+  Crear
+</button>
+
     
   </div>
 </div>
@@ -1798,31 +1881,47 @@ if (user?.guest) {
 </button>
 
 
-
 <button
   className={styles.smallButton2}
   onClick={async () => {
-    const seguro = confirm('¿Eliminar esta plantilla del proyecto?');
-    if (!seguro) return;
+    const { isConfirmed } = await Swal.fire({
+      title: "¿Estás seguro?",
+      text: "Esto eliminará esta plantilla del proyecto.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#999",
+      confirmButtonText: "Sí, eliminar",
+      cancelButtonText: "Cancelar"
+    });
+
+    if (!isConfirmed) return;
 
     try {
       await apiDeletePlantilla(r.id);
 
-      // Si la que borramos era la actualmente cargada en el canvas,
-      // limpiamos referencias para evitar incoherencias
       if (currentRecordId === r.id) {
         setCurrentRecordId(null);
         setCurrentProjectBadge({ id: null, name: "", place: "" });
-        // opcional: podríamos también hacer resetSwitch() aquí,
-        // para sacar del canvas lo que estaba cargado
-        resetSwitch();
+        resetSwitch(); // opcional: limpiar canvas
       }
 
-      // Volvemos a pedirle al backend la lista de proyectos + plantillas
       await refreshProjects();
+
+      Swal.fire({
+        icon: "success",
+        title: "Plantilla eliminada",
+        text: "Se ha eliminado correctamente.",
+        timer: 1800,
+        showConfirmButton: false
+      });
     } catch (err) {
       console.error("Error eliminando plantilla:", err);
-      alert("No se pudo eliminar la plantilla.");
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err.message || "No se pudo eliminar la plantilla.",
+      });
     }
   }}
   style={{
@@ -1832,6 +1931,7 @@ if (user?.guest) {
 >
   Eliminar
 </button>
+
 
 
                 </div>
@@ -2134,7 +2234,7 @@ if (user?.guest) {
   
 {selectedIconId && (
   <div style={{ marginTop: 12, display: 'flex', gap: 7, flexDirection :"column"}}>
-    <span style={{ fontSize: 12, opacity: 0.8 }}>Texto del icono:</span>
+    <span style={{ fontSize: 15, opacity: 0.8 }}>Texto del icono:</span>
 <div> <input
   ref={labelInputRef}
   value={labelInput}
