@@ -11,47 +11,57 @@ import { useAuth } from "../auth/AuthContext.jsx";
 import Swal from 'sweetalert2';
 
 // Reemplaza la firma y el useImage:
-// Reemplaza TU IconWithLabel completo por este:
-// REPLACE la firma y el Group de IconWithLabel:
 const IconWithLabel = ({
   x, y, size, src, label, isWhite, glowOn = true,
-  glowBlur = 18, glowOpacity = 0.45, onSelect // <- NUEVO
+  glowBlur = 18, glowOpacity = 0.45, onSelect
 }) => {
-
-  console.log(size)
   const [iconImg] = useImage(src);
   if (!iconImg) return null;
 
-  const fontSize = Math.min(30, Math.max(12, Math.round(size * .22)));
+  const isLongWord = (label || "").length > 9;
+  const fontSize = isLongWord
+    ? Math.round(size * 0.18)
+    : Math.min(24, Math.max(12, Math.round(size * 0.22)));
+  const labelPadding = 3;
+  const labelHeight = fontSize + labelPadding * 1;
 
   return (
     <Group
       x={x}
       y={y}
       listening
-      onClick={onSelect}     
-      onTap={onSelect}      
+      onClick={onSelect}
+      onTap={onSelect}
     >
+      {/* Icono */}
       <KonvaImage
         image={iconImg}
         width={size}
-        height={size }
-        //shadowOpacity={glowOpacity}
-     //   shadowOffset={{ x: 0, y: 0 }}
+        height={size}
+        shadowColor={glowOn ? (isWhite ? "#ffffff" : "#000000") : null}
+        // shadowBlur={glowOn ? glowBlur : 0}
+        shadowOpacity={glowOn ? glowOpacity : 0}
+        shadowOffset={{ x: 0, y: 0 }}
       />
+
+      {/* Etiqueta debajo */}
       <Text
-        x={0}
-        y={size }
-        width={size}
-        text={label ?? ''}
+        x={-3} // pequeño ajuste para evitar recorte
+        y={size + labelPadding}
+        width={size + 6} // da más espacio para letras largas
+        height={labelHeight}
+        text={label ?? ""}
         fontSize={fontSize}
-        fill={isWhite ? '#FFFFFF' : '#000000ff'}
+        fill={isWhite ? "#ffffff" : "#1e1e1e"}
         align="center"
-      
+        verticalAlign="middle"
+        listening={false}
       />
     </Group>
   );
 };
+
+
 
 
 
