@@ -22,7 +22,7 @@ const IconWithLabel = ({
   const [iconImg] = useImage(src);
   if (!iconImg) return null;
 
-  const fontSize = Math.min(14, Math.max(12, Math.round(size * .22)));
+  const fontSize = Math.min(30, Math.max(12, Math.round(size * .22)));
 
   return (
     <Group
@@ -1360,7 +1360,7 @@ const resetSwitch = () => {
   setPlateMode('sencilla');
   setSelectedSuiche(dataSuiche.suiche4.image);              
   setSelectedCarcasaDoble('/assets/carcasas doble/carcasa1.png');
-  setSelectedColor('#000000');                                // fondo por defecto
+  setSelectedColor('#000000');                                
   setSelectedPlantillaSingle('04');
   setSelectedPlantillaLeft('04');
   setSelectedPlantillaRight('04');
@@ -1376,19 +1376,18 @@ const resetSwitch = () => {
 
   return (
     <div className={styles.contenedor}>
-      
     <div style={{  display: "grid", gridTemplateRows: "auto 1fr" }}>
-      <ProfileBar onClickHome={() => nav("/")} />
-     <div className={styles.contendor3}>
-  <button
-  className={styles.smallButton3}
-  onClick={() => { 
-    refreshProjects(); 
-    refreshSaved(); 
-    setViewProjectId(null); 
-    setProjectsModalOpen(true); 
-  }}
->
+    <ProfileBar onClickHome={() => nav("/")} />
+    <div className={styles.contendor3}>
+    <button
+      className={styles.smallButton3}
+      onClick={() => { 
+      refreshProjects(); 
+      refreshSaved(); 
+      setViewProjectId(null); 
+      setProjectsModalOpen(true); 
+    }}
+    >
   <FolderKanban /> Mis Proyectos
 </button>
   <button className={styles.smallButton3} onClick={handleSaveTemplateClick}>
@@ -2231,8 +2230,7 @@ const resetSwitch = () => {
         draggable={false}
       />
     ))}
-  </div>
- 
+  </div> 
 </button>
 <div>
   
