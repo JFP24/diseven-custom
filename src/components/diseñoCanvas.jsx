@@ -10,20 +10,37 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import Swal from 'sweetalert2';
 
-// Reemplaza la firma y el useImage:
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 const IconWithLabel = ({
-  x, y, size, src, label, isWhite, glowOn = true,
-  glowBlur = 18, glowOpacity = 0.45, onSelect
+  x, y, size, src, label, isWhite, onSelect
 }) => {
   const [iconImg] = useImage(src);
   if (!iconImg) return null;
 
-  const isLongWord = (label || "").length > 9;
-  const fontSize = isLongWord
-    ? Math.round(size * 0.18)
-    : Math.min(24, Math.max(12, Math.round(size * 0.22)));
-  const labelPadding = 3;
-  const labelHeight = fontSize + labelPadding * 1;
+  const labelText = label?.trim() || "";
+  const hasLabel = labelText.length > 1;
+
+  // Tamaño equilibrado
+  const fontSize = Math.round(size * 0.19);
+
+  const labelPadding = 4;
+
+  // Altura dinámica: si es largo → 2 líneas
+  const multiline = labelText.length > 10; // puedes ajustar este número
+  const lineCount = multiline ? 2 : 1;
+
+  const labelHeight = lineCount * (fontSize * 1.1);
+
+  // Offset del texto
+  const textYOffset =
+    size < 100
+      ? size * 1
+      : size + labelPadding;
+
+  const iconYOffset = hasLabel
+    ? (size < 100 ? -4 : 2)
+    : -(size / 3.7) + (labelHeight / 1);
 
   return (
     <Group
@@ -38,34 +55,68 @@ const IconWithLabel = ({
         image={iconImg}
         width={size}
         height={size}
-        shadowColor={glowOn ? (isWhite ? "#ffffff" : "#000000") : null}
-        // shadowBlur={glowOn ? glowBlur : 0}
-        shadowOpacity={glowOn ? glowOpacity : 0}
-        shadowOffset={{ x: 0, y: 0 }}
+        y={iconYOffset}
+       
+      
       />
 
-      {/* Etiqueta debajo */}
-      <Text
-        x={-3} // pequeño ajuste para evitar recorte
-        y={size + labelPadding}
-        width={size + 6} // da más espacio para letras largas
-        height={labelHeight}
-        text={label ?? ""}
-        fontSize={fontSize}
-        fill={isWhite ? "#ffffff" : "#1e1e1e"}
-        align="center"
-        verticalAlign="middle"
-        listening={false}
-      />
+      {/* Texto */}
+      {hasLabel && (
+        <Text
+          x={-15}
+          y={textYOffset}
+          width={size + 30}
+          height={labelHeight}
+          text={labelText}
+          fontFamily="Montserrat"
+          fontSize={fontSize}
+          fontStyle="600"  // Semi-bold Montserrat
+          fill={isWhite ? "#ffffff" : "#1e1e1e"}
+          align="center"
+          verticalAlign="middle"
+          wrap="word"
+          ellipsis={false}
+          lineHeight={1.1}
+          listening={false}
+        />
+      )}
     </Group>
   );
 };
 
 
+// Espera a que TODAS las imágenes del stage estén cargadas
+const waitForImages = (stage) => {
+  return new Promise((resolve) => {
+    const layer = stage.getLayers()[0];
+    const images = layer.find('Image');
 
+    let pending = images.length;
+    if (pending === 0) return resolve();
 
+    images.forEach(imgNode => {
+      const image = imgNode.image();
+      if (!image) {
+        pending--;
+        if (pending === 0) resolve();
+        return;
+      }
 
+      if (image.complete) {
+        pending--;
+        if (pending === 0) resolve();
+      } else {
+        image.onload = () => {
+          pending--;
+          if (pending === 0) resolve();
+        };
+      }
+    });
+  });
+};
 
+// Espera un frame real de Konva
+const waitFrame = () => new Promise(res => requestAnimationFrame(res));
 
 const dataSuiche = {
 
@@ -576,6 +627,13 @@ const [isSuicheModalOpen, setSuicheModalOpen] = useState(false);
 // Paso 2: guardar plantilla (ya existente)
 const [isSaveAskOpen, setSaveAskOpen] = useState(false);
 
+const [isExporting, setIsExporting] = useState(false);
+const [showFondo, setShowFondo] = useState(true);
+const [showCarcasa, setShowCarcasa] = useState(true);
+const [forceBlackIcons, setForceBlackIcons] = useState(false);
+
+
+const [forceRenderKey, setForceRenderKey] = useState(0);
 
 
 // ===== PROYECTOS =====
@@ -716,7 +774,7 @@ const buildTemplateSnapshot = ({ projectName, placeName }) => {
       createdAt: new Date().toISOString(),
       version: "v1",
     },
-    plateMode,                  // 'sencilla' | 'doble'
+    plateMode,                  
     theme: selectedColor,       // '#000000' | '#FFFFFF'
     suiche: selectedSuiche,     // imagen seleccionada
   };
@@ -770,9 +828,9 @@ if (!placeInput) {
     placeName: placeInput,
   });
 
-  // Capturas visuales
-  const previewFull = captureStagePreview?.() || null;
-  const thumbSmall  = captureStageThumb?.()    || null;
+const previewFull = await captureStagePreview();
+const thumbSmall  = await captureStageThumb();
+
 
   // --- DECISIÓN: ¿update o create? ---
   // Estamos editando si ya tenemos un record cargado
@@ -880,87 +938,123 @@ if (!response.ok) {
 
 
 
-
 const applySnapshot = (snap) => {
-  // tema y suiche
+  if (!snap) return;
+
+  // 1) Tema y suiche
   setSelectedColor(snap.theme || '#000000');
-  setSelectedSuiche(snap?.suiche || dataSuiche?.suiche4?.image);
+  setSelectedSuiche(snap.suiche || dataSuiche.suiche4.image);
+
   if (snap.plateMode === 'doble' && snap.carcasaDoble) {
     setSelectedCarcasaDoble(snap.carcasaDoble);
   }
 
-  // modo placa
-  setPlateMode(snap.plateMode || 'sencilla');
+  // 2) Modo placa
+  const mode = snap.plateMode || 'sencilla';
+  setPlateMode(mode);
 
-  // plantillas por área
-  if (snap.plateMode === 'sencilla') {
-    setSelectedPlantillaSingle(snap?.areas?.single?.plantillaId || '04');
-    setIconsSingle(
-      (snap?.areas?.single?.icons || []).map(({ num, label, slotIdx }) => {
-        const slots = getSlotsForArea(SINGLE_PLATE, snap?.areas?.single?.plantillaId || '04');
-        const s = slots[slotIdx] || slots[0] || { x: PL_X, y: PL_Y, w: PL_W, h: PL_H };
-        const { x, y, size } = layoutIconInSlot(s, true);
-        return {
-          id: crypto.randomUUID(),
-          num,
-          src: getIconPath(num),
-          label,
-          slotIdx,
-          x,
-          y,
-          size
-        };
-      })
-    );
-    setIconsLeft([]);
-    setIconsRight([]);
+  // 3) LIMPIAR iconos actuales
+  setIconsSingle([]);
+  setIconsLeft([]);
+  setIconsRight([]);
+
+  if (mode === 'sencilla') {
+    // --- PLACA SENCILLA ---
+    const plantillaId = snap?.areas?.single?.plantillaId || '04';
+    setSelectedPlantillaSingle(plantillaId);
+    setActiveArea('single');
+
+    const snapIcons = snap?.areas?.single?.icons || [];
+    const slots = getSlotsForArea(SINGLE_PLATE, plantillaId);
+
+    const rebuilt = snapIcons.map(({ num, label, slotIdx }) => {
+      const safeIdx = slotIdx ?? 0;
+      const s =
+        slots[safeIdx] ||
+        slots[0] ||
+        { x: PL_X, y: PL_Y, w: PL_W, h: PL_H };
+
+      const { x, y, size } = layoutIconInSlot(s, true);
+
+      return {
+        id: crypto.randomUUID(),
+        num,
+        src: getIconPath(num),
+        label,
+        slotIdx: safeIdx,
+        x,
+        y,
+        size,
+      };
+    });
+
+    setIconsSingle(rebuilt);
   } else {
-    setSelectedPlantillaLeft(snap?.areas?.left?.plantillaId || '04');
-    setSelectedPlantillaRight(snap?.areas?.right?.plantillaId || '04');
+    // --- PLACA DOBLE ---
+    const plantillaLeftId = snap?.areas?.left?.plantillaId || '04';
+    const plantillaRightId = snap?.areas?.right?.plantillaId || '04';
 
-    setIconsLeft(
-      (snap?.areas?.left?.icons || []).map(({ num, label, slotIdx }) => {
-        const slots = getSlotsForArea(DOUBLE_PLATE_LEFT, snap?.areas?.left?.plantillaId || '04');
-        const s = slots[slotIdx] || slots[0] || DOUBLE_PLATE_LEFT;
-        const { x, y, size } = layoutIconInSlot(s, true);
-        return {
-          id: crypto.randomUUID(),
-          num,
-          src: getIconPath(num),
-          label,
-          slotIdx,
-          x,
-          y,
-          size
-        };
-      })
-    );
+    setSelectedPlantillaLeft(plantillaLeftId);
+    setSelectedPlantillaRight(plantillaRightId);
+    setActiveArea('left'); // por defecto
 
-    setIconsRight(
-      (snap?.areas?.right?.icons || []).map(({ num, label, slotIdx }) => {
-        const slots = getSlotsForArea(DOUBLE_PLATE_RIGHT, snap?.areas?.right?.plantillaId || '04');
-        const s = slots[slotIdx] || slots[0] || DOUBLE_PLATE_RIGHT;
-        const { x, y, size } = layoutIconInSlot(s, true);
-        return {
-          id: crypto.randomUUID(),
-          num,
-          src: getIconPath(num),
-          label,
-          slotIdx,
-          x,
-          y,
-          size
-        };
-      })
-    );
+    const leftIconsSnap = snap?.areas?.left?.icons || [];
+    const rightIconsSnap = snap?.areas?.right?.icons || [];
+
+    const leftSlots = getSlotsForArea(DOUBLE_PLATE_LEFT, plantillaLeftId);
+    const rightSlots = getSlotsForArea(DOUBLE_PLATE_RIGHT, plantillaRightId);
+
+    const rebuiltLeft = leftIconsSnap.map(({ num, label, slotIdx }) => {
+      const safeIdx = slotIdx ?? 0;
+      const s =
+        leftSlots[safeIdx] ||
+        leftSlots[0] ||
+        DOUBLE_PLATE_LEFT;
+
+      const { x, y, size } = layoutIconInSlot(s, true);
+
+      return {
+        id: crypto.randomUUID(),
+        num,
+        src: getIconPath(num),
+        label,
+        slotIdx: safeIdx,
+        x,
+        y,
+        size,
+      };
+    });
+
+    const rebuiltRight = rightIconsSnap.map(({ num, label, slotIdx }) => {
+      const safeIdx = slotIdx ?? 0;
+      const s =
+        rightSlots[safeIdx] ||
+        rightSlots[0] ||
+        DOUBLE_PLATE_RIGHT;
+
+      const { x, y, size } = layoutIconInSlot(s, true);
+
+      return {
+        id: crypto.randomUUID(),
+        num,
+        src: getIconPath(num),
+        label,
+        slotIdx: safeIdx,
+        x,
+        y,
+        size,
+      };
+    });
+
+    setIconsLeft(rebuiltLeft);
+    setIconsRight(rebuiltRight);
   }
 
-  // limpiar selección visual
-  setActiveArea('single');
+  // 4) Limpieza de selección / edición
   setActiveSlotIdx(null);
   setSelectedIconId(null);
+  setEditingIconId(null);
 };
-
 
 
 
@@ -996,66 +1090,57 @@ const loadTemplates = () => {
 
 
   const stageRef = useRef(null);
-// Rectángulo exacto de la carcasa dibujada (sencilla y doble usan el mismo)
-// Caja exacta donde dibujas la carcasa
-// zona REAL donde dibujas la carcasa en el Stage
-
-const CARCASA_RECT = { x: 200, y: 40, w: 785, h: 785 };
-
-// márgenes opcionales alrededor para que no quede tan apretado en la miniatura
-const PAD_LEFT   = 0;
-const PAD_TOP    = 0;
-const PAD_RIGHT  = 0;
-const PAD_BOTTOM = 60; // dale un poquito de aire abajo
-
 
 const getExportRect = () => ({
-  x: CARCASA_RECT.x - PAD_LEFT,
-  y: CARCASA_RECT.y - PAD_TOP,
-  w: CARCASA_RECT.w + PAD_LEFT + PAD_RIGHT,
-  h: CARCASA_RECT.h + PAD_TOP + PAD_BOTTOM,
+  x: 200,
+  y: 40,
+  w: 785,
+  h: 785,
 });
 
 
 
-// === Preview para guardar (PNG liviano, fondo transparente) ===
-const captureStagePreview = () => {
+
+
+// PREVIEW EN PNG — *espera imágenes y render antes de capturar*
+const captureStagePreview = async () => {
   if (!stageRef.current) return null;
-  try {
-    const rect = getExportRect();
-    return stageRef.current.toDataURL({
-      mimeType: "image/png",
-      pixelRatio: 1,
-      x: rect.x,
-      y: rect.y,
-      width: rect.w,
-      height: rect.h,
-    });
-  } catch (err) {
-    console.error("Error al capturar preview:", err);
-    return null;
-  }
-};
-const captureStageThumb = () => {
-  if (!stageRef.current) return null;
-  try {
-    const rect = getExportRect();
-    return stageRef.current.toDataURL({
-      mimeType: "image/png",
-      pixelRatio: 0.4,
-      x: rect.x,
-      y: rect.y,
-      width: rect.w,
-      height: rect.h,
-    });
-  } catch (err) {
-    console.error("Error al capturar thumb:", err);
-    return null;
-  }
+
+  const stage = stageRef.current;
+  const rect = getExportRect();
+
+  await waitForImages(stage);
+  await waitFrame();
+
+  return stage.toDataURL({
+    mimeType: "image/png",
+    pixelRatio: 1,
+    x: rect.x,
+    y: rect.y,
+    width: rect.w,
+    height: rect.h,
+  });
 };
 
+// MINIATURA
+const captureStageThumb = async () => {
+  if (!stageRef.current) return null;
 
+  const stage = stageRef.current;
+  const rect = getExportRect();
 
+  await waitForImages(stage);
+  await waitFrame();
+
+  return stage.toDataURL({
+    mimeType: "image/png",
+    pixelRatio: 0.4,
+    x: rect.x,
+    y: rect.y,
+    width: rect.w,
+    height: rect.h,
+  });
+};
 
 
 
@@ -1171,12 +1256,14 @@ useEffect(() => {
 useEffect(() => { setActiveSlotIdx(null); setSelectedIconId(null); }, [plateMode]);
 
 
-
-  const getIconPath = (num) => (
-    esFondoBlanco
-      ? `/assets/ICONOS NEGROS/ICONOS BOTNOERAS-${num}.png`
-      : `/assets/ICONOS BLANCOS/ICONOS BOTNOERAS blanco-${num}.png`
-  );
+const getIconPath = (num) => {
+  if (forceBlackIcons) {
+    return `/assets/ICONOS NEGROS/ICONOS BOTNOERAS-${num}.png`;
+  }
+  return esFondoBlanco
+    ? `/assets/ICONOS NEGROS/ICONOS BOTNOERAS-${num}.png`
+    : `/assets/ICONOS BLANCOS/ICONOS BOTNOERAS blanco-${num}.png`;
+};
 
 
 
@@ -1379,9 +1466,541 @@ const resetSwitch = () => {
   setActiveSlotIdx(null);
 };
 
+// === Nueva función robusta para exportar UNA plantilla ===
+
+
+const waitableApplySnapshot = async (snapshot) => {
+  applySnapshot(snapshot);
+
+  // esperar que React procese cambios
+  await new Promise(res => setTimeout(res, 60));
+
+  // 💥 reconstrucción total del canvas (fondos, slots, iconos, rutas)
+  await forceFullRebuild();
+
+  // dejar que se apliquen rutas de plantilla
+  await new Promise(res => setTimeout(res, 60));
+};
+
+
+const waitForReactRender = () =>
+  new Promise(resolve => 
+    requestAnimationFrame(() => 
+      requestAnimationFrame(resolve)
+    )
+  );
+
+// Espera varios frames para asegurar que React + Konva + imágenes han terminado
+const waitForFullStabilization = () =>
+  new Promise((resolve) => {
+    let frames = 0;
+
+    function step() {
+      frames++;
+
+      // Esperamos ~20 frames (≈ 300 ms aprox.)
+      if (frames < 20) {
+        requestAnimationFrame(step);
+      } else {
+        resolve();
+      }
+    }
+
+    requestAnimationFrame(step);
+  });
+
+
+const waitForPlantillaImages = async () => {
+  return new Promise(resolve => {
+    let checks = 0;
+    function verify() {
+      checks++;
+
+      // para plantilla sencilla
+      const sReady = plateMode === "sencilla"
+        ? plantillaSingle && plantillaSingle.complete && plantillaSingle.naturalWidth > 0
+        : true;
+
+      // para plantilla doble
+      const leftReady = plateMode === "doble"
+        ? plantillaLeft && plantillaLeft.complete && plantillaLeft.naturalWidth > 0
+        : true;
+
+      const rightReady = plateMode === "doble"
+        ? plantillaRight && plantillaRight.complete && plantillaRight.naturalWidth > 0
+        : true;
+
+      if (sReady && leftReady && rightReady) {
+        resolve();
+      } else if (checks < 60) {  
+        // 60 frames = ~1000 ms máximo
+        requestAnimationFrame(verify);
+      } else {
+        resolve(); // evitar bloqueo
+      }
+    }
+    verify();
+  });
+};
+
+  const handleDownloadCurrentTemplate = async () => {
+  const pngDataURL = await exportOnlyTemplateAndIconsPNG();
+  if (!pngDataURL) return;
+
+  const link = document.createElement("a");
+  link.href = pngDataURL;
+
+  // Si tienes el nombre del lugar / plantilla
+  const fileName = ("plantilla").replace(
+    /[^a-z0-9_\-]/gi,
+    "_"
+  );
+
+  link.download = `${fileName}.png`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+const loadImage = (src) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = src;
+    img.onload = () => resolve(img);
+    img.onerror = (e) => reject(e);
+  });
 
 
 
+const exportOnlyTemplateAndIconsPNG = async () => {
+  if (!stageRef.current) {
+    console.warn("⛔ exportOnlyTemplateAndIconsPNG: no hay stageRef");
+    return;
+  }
+
+  // 🔍 LOG de estado ANTES de tocar nada
+  console.log("===== 🧪 exportOnlyTemplateAndIconsPNG() =====");
+  console.log("🧾 plateMode:", plateMode);
+  console.log("🎨 theme (selectedColor):", selectedColor);
+  console.log("🧱 selectedPlantillaSingle:", selectedPlantillaSingle);
+  console.log("🧱 selectedPlantillaLeft:", selectedPlantillaLeft);
+  console.log("🧱 selectedPlantillaRight:", selectedPlantillaRight);
+  console.log("🔢 iconsSingle.length:", iconsSingle?.length || 0);
+  console.log("🔢 iconsLeft.length:", iconsLeft?.length || 0);
+  console.log("🔢 iconsRight.length:", iconsRight?.length || 0);
+
+  // 1) Configuración para exportar SOLO plantilla + íconos
+  console.log("⚙️ Desactivando fondo y carcasa, forzando iconos negros...");
+  setShowFondo(false);
+  setShowCarcasa(false);
+  setForceBlackIcons(true);
+
+  // Esperar a que todo se actualice y cargue
+  await waitForReactRender();
+  await waitForPlantillaImages();
+  await waitForImages(stageRef.current);
+  await waitFrame();
+  await waitForFullStabilization();
+
+  const rect = { x: PL_X, y: PL_Y, width: PL_W, height: PL_H };
+  let plantillaImage = null;
+if (plateMode === "sencilla") {
+  const plantillaId = selectedPlantillaSingle || "04";
+
+  plantillaImage = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+
+    // RUTA CORRECTA FINAL
+    img.src = `/assets/PLANTILLAS/plantillas-${plantillaId}.png`;
+
+    img.onload = () => resolve(img);
+    img.onerror = (e) => {
+      console.error("❌ Error cargando plantilla sencilla:", img.src, e);
+      reject(e);
+    };
+  });
+}
+ else {
+  const leftId = selectedPlantillaLeft || "04";
+  const rightId = selectedPlantillaRight || "04";
+
+  const leftImg = await loadImage(`/assets/PLANTILLAS/plantillas-${leftId}.png`);
+  const rightImg = await loadImage(`/assets/PLANTILLAS/plantillas-${rightId}.png`);
+
+  const canvasTemp = document.createElement("canvas");
+  canvasTemp.width = PL_W * 2;
+  canvasTemp.height = PL_H;
+  const ctxTemp = canvasTemp.getContext("2d");
+
+  ctxTemp.drawImage(leftImg, 0, 0, PL_W, PL_H);
+  ctxTemp.drawImage(rightImg, PL_W, 0, PL_W, PL_H);
+
+  plantillaImage = await loadImage(canvasTemp.toDataURL("image/png"));
+}
+
+
+
+  if (!plantillaImage) {
+    console.warn("⛔ No hay imagen de plantilla cargada dentro de exportOnlyTemplateAndIconsPNG");
+    // Restaurar estado visual
+    setShowFondo(true);
+    setShowCarcasa(true);
+    setForceBlackIcons(false);
+    return;
+  }
+
+  // 3) Canvas grande para alta resolución
+  const pixelRatio = 8; // luego se reduce a la mitad más abajo
+  const canvasFull = document.createElement("canvas");
+  canvasFull.width = rect.width * pixelRatio;
+  canvasFull.height = rect.height * pixelRatio;
+  const ctxFull = canvasFull.getContext("2d");
+  ctxFull.imageSmoothingEnabled = true;
+  ctxFull.imageSmoothingQuality = "high";
+
+  // Dibujar plantilla base
+  ctxFull.drawImage(
+    plantillaImage,
+    0,
+    0,
+    rect.width * pixelRatio,
+    rect.height * pixelRatio
+  );
+
+  // 4) Íconos a usar según modo
+  const iconsToUse =
+    plateMode === "doble" ? [...iconsLeft, ...iconsRight] : iconsSingle;
+
+  console.log("🎯 iconsToUse.length:", iconsToUse?.length || 0);
+  console.log(
+    "🎯 iconsToUse nums:",
+    (iconsToUse || []).map(ic => ic.num)
+  );
+
+  for (const icon of iconsToUse || []) {
+    // Por si acaso
+    if (!icon) continue;
+
+    console.log(
+      "   ➕ Pintando icono:",
+      icon.num,
+      "label:",
+      icon.label,
+      "slotIdx:",
+      icon.slotIdx,
+      "x:",
+      icon.x,
+      "y:",
+      icon.y,
+      "size:",
+      icon.size
+    );
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = icon.src;
+    await new Promise((resolve) => (img.onload = resolve));
+
+    const size = icon.size;
+    const label = (icon.label || "").trim();
+    const hasLabel = label.length > 0;
+    const multiline = label.length > 10;
+    const lineCount = multiline ? 2 : 1;
+
+    const fontSize = Math.round(size * 0.19);
+    const labelPadding = 4;
+    const labelHeight = lineCount * (fontSize * 1.15);
+
+    const textYOffset = size < 70 ? size * 0.85 : size + labelPadding;
+    const iconYOffset = hasLabel
+      ? (size < 100 ? -5 : 0)
+      : -(size / 3.7) + labelHeight / 2;
+
+    const drawX = (icon.x - rect.x) * pixelRatio;
+    const drawY = (icon.y - rect.y + iconYOffset) * pixelRatio;
+
+    // Ícono
+    ctxFull.drawImage(
+      img,
+      drawX,
+      drawY,
+      size * pixelRatio,
+      size * pixelRatio
+    );
+
+    // Texto
+    if (hasLabel) {
+      ctxFull.font = `600 ${Math.round(fontSize * pixelRatio)}px Montserrat`;
+      ctxFull.fillStyle = esFondoNegro ? "#ffffff" : "#1e1e1e";
+      ctxFull.textAlign = "center";
+      ctxFull.textBaseline = "middle";
+
+      const centerX = (icon.x - rect.x + size / 2) * pixelRatio;
+
+      if (!multiline) {
+        const cy =
+          (icon.y - rect.y + textYOffset + labelHeight / 2) * pixelRatio;
+        ctxFull.fillText(label, centerX, cy);
+      } else {
+        const words = label.split(" ");
+        const first = words.slice(0, Math.ceil(words.length / 2)).join(" ");
+        const second = words.slice(Math.ceil(words.length / 2)).join(" ");
+
+        const lh = fontSize * pixelRatio * 1.1;
+        const baseY =
+          (icon.y - rect.y + textYOffset + labelHeight / 1.5) * pixelRatio;
+
+        ctxFull.fillText(first, centerX, baseY - lh / 2);
+        ctxFull.fillText(second, centerX, baseY + lh / 2);
+      }
+    }
+  }
+
+  // 5) Reducir un poco el tamaño final (suavizado)
+  const finalCanvas = document.createElement("canvas");
+  finalCanvas.width = canvasFull.width * 0.5;
+  finalCanvas.height = canvasFull.height * 0.5;
+
+  finalCanvas
+    .getContext("2d")
+    .drawImage(canvasFull, 0, 0, finalCanvas.width, finalCanvas.height);
+
+  const pngDataURL = finalCanvas.toDataURL("image/png");
+
+  console.log("✅ exportOnlyTemplateAndIconsPNG: PNG generado, length:", pngDataURL.length);
+
+  // 6) Restaurar estado visual del editor
+  setShowFondo(true);
+  setShowCarcasa(true);
+  setForceBlackIcons(false);
+
+  return pngDataURL;
+};
+
+
+async function renderSnapshotToPNG(snapshot) {
+  const plateMode = snapshot.plateMode;
+  const selectedColor = snapshot.theme || "#000000";
+
+  const rect = { x: PL_X, y: PL_Y, width: PL_W, height: PL_H };
+
+  // === 1) Cargar PLANTILLA EXACTAMENTE IGUAL ===
+  let plantillaImage = null;
+
+  if (plateMode === "sencilla") {
+    const plantillaId = snapshot.areas.single.plantillaId || "04";
+    plantillaImage = await loadImage(`/assets/PLANTILLAS/plantillas-${plantillaId}.png`);
+  } else {
+    const leftId = snapshot.areas.left.plantillaId;
+    const rightId = snapshot.areas.right.plantillaId;
+
+    const leftImg = await loadImage(`/assets/PLANTILLAS/plantillas-${leftId}.png`);
+    const rightImg = await loadImage(`/assets/PLANTILLAS/plantillas-${rightId}.png`);
+
+    // Igual que exportOnlyTemplateAndIconsPNG: canvas temporal doble
+    const canvasTemp = document.createElement("canvas");
+    canvasTemp.width = PL_W * 2;
+    canvasTemp.height = PL_H;
+    const ctxTemp = canvasTemp.getContext("2d");
+
+    ctxTemp.drawImage(leftImg, 0, 0, PL_W, PL_H);
+    ctxTemp.drawImage(rightImg, PL_W, 0, PL_W, PL_H);
+
+    plantillaImage = await loadImage(canvasTemp.toDataURL("image/png"));
+  }
+
+  // === 2) Crear canvas FULL (misma exportación exacta) ===
+  const pixelRatio = 8;
+  const canvasFull = document.createElement("canvas");
+  canvasFull.width = rect.width * pixelRatio;
+  canvasFull.height = rect.height * pixelRatio;
+  const ctxFull = canvasFull.getContext("2d");
+
+  ctxFull.imageSmoothingEnabled = true;
+  ctxFull.imageSmoothingQuality = "high";
+
+  ctxFull.drawImage(
+    plantillaImage,
+    0,
+    0,
+    rect.width * pixelRatio,
+    rect.height * pixelRatio
+  );
+
+  // === 3) Determinar slots EXACTOS ===
+  const finalSlots =
+    plateMode === "sencilla"
+      ? getSlotsForArea(SINGLE_PLATE, snapshot.areas.single.plantillaId)
+      : [
+          ...getSlotsForArea(DOUBLE_PLATE_LEFT, snapshot.areas.left.plantillaId),
+          ...getSlotsForArea(DOUBLE_PLATE_RIGHT, snapshot.areas.right.plantillaId),
+        ];
+
+  // === 4) Determinar íconos EXACTOS ===
+  const iconsToUse =
+    plateMode === "sencilla"
+      ? snapshot.areas.single.icons
+      : [...snapshot.areas.left.icons, ...snapshot.areas.right.icons];
+
+  for (const icon of iconsToUse) {
+    // Aplicar layout EXACTO (slot → x,y,size)
+    const slot = finalSlots[icon.slotIdx];
+    if (!slot) continue;
+
+    const layout = layoutIconInSlot(slot, true); // true = FONDO NEGRO (negro)
+    const { x, y, size } = layout;
+
+    const img = await loadImage(`/assets/ICONOS NEGROS/ICONOS BOTNOERAS-${icon.num}.png`);
+
+    const drawX = (x - rect.x) * pixelRatio;
+    const drawY = (y - rect.y) * pixelRatio;
+
+    // === PINTAR ÍCONO ===
+    ctxFull.drawImage(
+      img,
+      drawX,
+      drawY,
+      size * pixelRatio,
+      size * pixelRatio
+    );
+
+    // === PINTAR TEXTO EXACTO ===
+    const label = (icon.label || "").trim();
+    if (label.length > 0) {
+      const multiline = label.length > 10;
+      const fontSize = Math.round(size * 0.19);
+      const labelPadding = 4;
+
+      const lh = fontSize * pixelRatio * 1.1;
+
+      const baseY =
+        (y - rect.y + size + labelPadding + fontSize) * pixelRatio;
+
+      ctxFull.font = `600 ${Math.round(fontSize * pixelRatio)}px Montserrat`;
+      ctxFull.fillStyle = "#1e1e1e";
+      ctxFull.textAlign = "center";
+      ctxFull.textBaseline = "middle";
+
+      const centerX = (x - rect.x + size / 2) * pixelRatio;
+
+      if (!multiline) {
+        ctxFull.fillText(label, centerX, baseY);
+      } else {
+        const words = label.split(" ");
+        const first = words.slice(0, Math.ceil(words.length / 2)).join(" ");
+        const second = words.slice(Math.ceil(words.length / 2)).join(" ");
+
+        ctxFull.fillText(first, centerX, baseY - lh / 2);
+        ctxFull.fillText(second, centerX, baseY + lh / 2);
+      }
+    }
+  }
+
+  // === 5) Reducir EXACTAMENTE igual ===
+  const finalCanvas = document.createElement("canvas");
+  finalCanvas.width = canvasFull.width * 0.5;
+  finalCanvas.height = canvasFull.height * 0.5;
+
+  finalCanvas.getContext("2d").drawImage(
+    canvasFull,
+    0,
+    0,
+    finalCanvas.width,
+    finalCanvas.height
+  );
+
+  return finalCanvas.toDataURL("image/png");
+}
+
+const exportProjectZIP = async (projectId) => {
+  if (!stageRef.current) return;
+
+  try {
+    const res = await fetchPlantillasByProject(projectId);
+    const plantillas = res?.plantillas || [];
+
+    if (plantillas.length === 0) {
+      Swal.fire("Sin plantillas", "Este proyecto no tiene plantillas", "info");
+      return;
+    }
+
+    const zip = new JSZip();
+
+    Swal.fire({
+      title: "Exportando plantillas...",
+      html: "<b id='progress-text'>Iniciando…</b>",
+      allowOutsideClick: false,
+      showConfirmButton: false,
+      didOpen: () => Swal.showLoading(),
+      background: "#1e293b",
+      color: "#fff",
+    });
+
+    let lastSignature = "";
+
+    for (let i = 0; i < plantillas.length; i++) {
+      const p = plantillas[i];
+
+      document.getElementById("progress-text").textContent =
+        `Procesando ${i + 1}/${plantillas.length}: ${p.placeName}`;
+
+      const full = await fetchPlantillaById(p._id);
+      if (!full?.snapshot) continue;
+
+      // ⭐ **Nuevo: aplicar snapshot correctamente**
+      await waitableApplySnapshot(full.snapshot);
+
+      // ⭐ **Asegurar cargas completas**
+      await waitForReactRender();
+      await waitForPlantillaImages();
+      await waitForImages(stageRef.current);
+      await waitForFullStabilization();
+
+ const signature = JSON.stringify(full.snapshot);
+
+
+        console.log(lastSignature)
+
+      if (signature === lastSignature) {
+        console.warn("⏭ Misma firma, se omite duplicado");
+        continue;
+      }
+      
+      lastSignature = signature;
+
+      // ⭐ Exportar la imagen final
+      const pngDataURL = await renderSnapshotToPNG(full.snapshot);
+
+      if (!pngDataURL) continue;
+
+      const safeName = (p.placeName || `plantilla_${i+1}`)
+        .replace(/[^a-z0-9_\-]/gi, "_");
+
+      zip.file(`${safeName}.png`, pngDataURL.split(",")[1], { base64: true });
+
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    saveAs(blob, "proyecto_plantillas.zip");
+
+    Swal.fire("¡Listo!","Se exportaron todas las plantillas exitosamente","success");
+
+  } catch(err) {
+    console.error(err);
+    Swal.fire("Error", "No se pudo generar el ZIP", "error");
+  }
+};
+const forceFullRebuild = () => {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      setForceRenderKey(prev => prev + 1); // obligar Stage a reconstruirse
+      resolve();
+    }, 50);
+  });
+};
 
 
   return (
@@ -1420,6 +2039,11 @@ const resetSwitch = () => {
 </button>
 
 
+<button onClick={handleDownloadCurrentTemplate}>
+  Exportar Carpeta
+</button>
+
+
 
 <Modal
  title={
@@ -1432,6 +2056,19 @@ const resetSwitch = () => {
   width={860}
   variant={modalVariant}
 >
+  <button
+  className={styles.smallButton3}
+  onClick={() => {
+    if (!selectedProjectId) {
+      Swal.fire("Selecciona un proyecto", "", "info");
+      return;
+    }
+    exportProjectZIP(selectedProjectId);
+  }}
+>
+  Exportar ZIP
+</button>
+
   {/* 👇 SOLO mostramos selección/creación de proyectos si NO estamos dentro de uno */}
 {!viewProjectId && (
   <>
@@ -1707,7 +2344,32 @@ const resetSwitch = () => {
     
     <button
       key={p._id}
-      onClick={() => setViewProjectId(p._id)}
+      onClick={async () => {
+  setViewProjectId(p._id);
+
+  // 🔥 cargar automáticamente LA PRIMERA plantilla real del proyecto
+  const items = savedList
+    .filter(r => r.projectId === p._id)
+    .sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt));
+
+  if (items.length > 0) {
+    const first = items[0];
+    const full = await fetchPlantillaById(first.id);
+
+    applySnapshot(full.snapshot);
+    setCurrentRecordId(full._id);
+    setCurrentProjectBadge({
+      id: full.projectId,
+      name: first.projectName,
+      place: full.placeName
+    });
+
+    setSelectedProjectId(full.projectId);
+    setSelectedProjectName(first.projectName);
+    setLabelInput(full.placeName);
+  }
+}}
+
       style={{
         textAlign: 'left',
         border: '1px solid rgba(0,0,0,.10)',
@@ -1794,106 +2456,92 @@ const resetSwitch = () => {
         .map((r) => {
           const hero = r.previewThumb || r.preview || null;
           return (
-            <div
-              key={r.id}
-              style={{
-                border: '1px solid rgba(0,0,0,.10)',
-                borderRadius: 16,
-                overflow: 'hidden',
-                background: '#fff',
-                boxShadow: '0 6px 18px rgba(0,0,0,.06)'
-              }}
-            >
-              <div style={{
-                height: 290,
-                background: '#b4b4b4ff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 12,
-                borderBottom: '1px solid rgba(0,0,0,.08)'
-              }}>
-                {hero ? (
-                  <img
-                    src={hero}
-                    alt=""
-                    style={{
-                      maxWidth: '110%',
-                      maxHeight: '110%',
-                      display: 'block',
-                      objectFit: 'contain',
-                      marginLeft: '0',
-                      marginRight: '24px'
-                    }}
-                    draggable={false}
-                  />
-                ) : (
-                  <div style={{ opacity: .6, fontSize: 13 }}>Sin imagen</div>
-                )}
-              </div>
-
-              <div style={{ padding: 12 }}>
-                <div
-                  style={{
-                    fontWeight: 600,
-                    fontSize: 15,
-                    marginBottom: 4,
-                    color: "black"
-                  }}
-                >
-                  {r.placeName}
-                </div>
-                <div
-                  style={{
-                    fontSize: 12,
-                    opacity: .7,
-                    marginBottom: 10,
-                    color: "black"
-                  }}
-                >
-                  {new Date(r.savedAt).toLocaleString()}
-                </div>
-
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    flexWrap: 'wrap',
-                    color: "black"
-                  }}
-                >
-           <button
-  className={styles.smallButton2}
+           <div
+  key={r.id}
   onClick={async () => {
-    try {
-      const full = await fetchPlantillaById(r.id);
+    // ⭐ SOLO PREVIEW
+    const full = await fetchPlantillaById(r.id);
 
-      applySnapshot(full.snapshot);
+    applySnapshot(full.snapshot);   // muestra en el canvas
+    setCurrentProjectBadge({
+      id: full.projectId,
+      name: r.projectName,
+      place: full.placeName
+    });
 
-      setCurrentRecordId(full._id);
-      setCurrentProjectBadge({
-        id: full.projectId,
-        // usamos el nombre del proyecto que ya conocemos en memoria
-        name: r.projectName,
-        place: full.placeName
-      });
-
-      setSelectedProjectId(full.projectId);
-      setSelectedProjectName(r.projectName);
-      setLabelInput(full.placeName);
-
-      setProjectsModalOpen(false);
-      setViewProjectId(null);
-    } catch (err) {
-      console.error("Error cargando plantilla completa:", err);
-      alert("No se pudo cargar la plantilla");
-    }
+    setSelectedProjectId(full.projectId);
+    setSelectedProjectName(r.projectName);
+    setLabelInput(full.placeName);
+  }}
+  style={{
+    border: '1px solid rgba(0,0,0,.10)',
+    borderRadius: 16,
+    overflow: 'hidden',
+    background: '#fff',
+    boxShadow: '0 6px 18px rgba(0,0,0,.06)',
+    cursor: 'pointer'
   }}
 >
-  Cargar
-</button>
+  <div style={{
+    height: 290,
+    background: '#b4b4b4ff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderBottom: '1px solid rgba(0,0,0,.08)'
+  }}>
+    {hero ? (
+      <img
+        src={hero}
+        alt=""
+        style={{
+          maxWidth: '110%',
+          maxHeight: '110%',
+          objectFit: 'contain'
+        }}
+        draggable={false}
+      />
+    ) : (
+      <div style={{ opacity: .6, fontSize: 13 }}>Sin imagen</div>
+    )}
+  </div>
 
+  <div style={{ padding: 12 }}>
+    <div style={{ fontWeight: 600, fontSize: 15 }}>{r.placeName}</div>
+    <div style={{ fontSize: 12, opacity: .7 }}>{new Date(r.savedAt).toLocaleString()}</div>
 
+    <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+      
+      {/* ⭐ BOTÓN PARA CARGAR COMPLETO (NO PREVIEW) */}
+      <button
+        className={styles.smallButton2}
+        onClick={async (e) => {
+          e.stopPropagation(); // 🔥 evita que el click del card haga preview
+
+          const full = await fetchPlantillaById(r.id);
+
+          applySnapshot(full.snapshot);
+          setCurrentRecordId(full._id);
+          setCurrentProjectBadge({
+            id: full.projectId,
+            name: r.projectName,
+            place: full.placeName
+          });
+
+          setSelectedProjectId(full.projectId);
+          setSelectedProjectName(r.projectName);
+          setLabelInput(full.placeName);
+
+          // Salir al canvas
+          setProjectsModalOpen(false);
+          setViewProjectId(null);
+        }}
+      >
+        Cargar
+      </button>
+
+      {/* Eliminar */}
 <button
   className={styles.smallButton2}
   onClick={async () => {
@@ -1944,12 +2592,10 @@ const resetSwitch = () => {
 >
   Eliminar
 </button>
+    </div>
+  </div>
+</div>
 
-
-
-                </div>
-              </div>
-            </div>
           );
         })}
     </div>
@@ -2013,6 +2659,7 @@ const resetSwitch = () => {
 >
   <div style={{ display: 'grid', gap: 16, color: 'black' }}>
     {/* Paso 1: elegir proyecto existente */}
+    
     <div>
       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
         1) Selecciona un proyecto
@@ -2299,6 +2946,7 @@ const resetSwitch = () => {
 )}
              <div ref={canvasHostRef} className={styles.canvasCard}>
     <Stage
+      key={forceRenderKey}
     ref={stageRef}
     width={DESIGN_W}
     height={DESIGN_H}
@@ -2310,25 +2958,52 @@ const resetSwitch = () => {
     {/* Carcasa */}
     {plateMode === 'sencilla' && carcasaSingle && (
       <>
-      { carcasaSingle && (
-        <KonvaImage image={carcasaSingle} x={200} y={40} width={785} height={785} className={styles.carcasa} />
-       )}
       
-      <Rect
-        x={SINGLE_PLATE.x} y={SINGLE_PLATE.y}
-        width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
-        fill={selectedColor} cornerRadius={15}
-      />
+    {showCarcasa && carcasaSingle && (
+  <KonvaImage
+    image={carcasaSingle}
+    x={200}
+    y={40}
+    width={785}
+    height={785}
+    className={styles.carcasa}
+  />
+)}
+
+  {showFondo && (
+  <Rect
+    x={SINGLE_PLATE.x}
+    y={SINGLE_PLATE.y}
+    width={SINGLE_PLATE.w}
+    height={SINGLE_PLATE.h}
+    fill={selectedColor}
+    cornerRadius={15}
+  />
+)}
+
     
-        {selectedPlantillaSingle !== '04' && plantillaSingle && (
-          <KonvaImage
-            image={plantillaSingle}
-            x={SINGLE_PLATE.x} y={SINGLE_PLATE.y}
-            width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
-          />
-        )}
+      {plantillaSingle && (
+  isExporting ? (
+    // Durante la exportación la dibujo a tamaño completo del recorte
+    <KonvaImage
+      image={plantillaSingle}
+      x={200} y={40}
+      width={785} height={785}
+      listening={false}
+    />
+  ) : (
+    // En uso normal, va sobre el rectángulo de la placa
+    <KonvaImage
+      image={plantillaSingle}
+      x={SINGLE_PLATE.x} y={SINGLE_PLATE.y}
+      width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
+      listening={false}
+    />
+  )
+)}
+
         {/* Slots + selección de slot (ocultos cuando exportas) */}
-      {slotsSingle.map((s, i) => (
+     {!isExporting && slotsSingle.map((s, i) => (
         <Rect
           key={`single-${i}`}
           x={s.x}
@@ -2358,8 +3033,7 @@ const resetSwitch = () => {
 
         {/* IZQUIERDA */}
         <Rect x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h} fill={selectedColor} cornerRadius={15}/>
-       {selectedPlantillaLeft !== '04' && plantillaLeft && (
-          <KonvaImage image={plantillaLeft} x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h}/>
+{plantillaLeft && (          <KonvaImage image={plantillaLeft} x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h}/>
           )}
           { slotsLeft.map((s, i) => (
             <Rect
@@ -2383,7 +3057,7 @@ const resetSwitch = () => {
 
         {/* DERECHA */}
         <Rect x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h} fill={selectedColor} cornerRadius={15}/>
-       {selectedPlantillaRight !== '04' && plantillaRight && (
+      {plantillaRight && (
           <KonvaImage image={plantillaRight} x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h}/>
         )}
 
