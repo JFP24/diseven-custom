@@ -379,6 +379,11 @@ function useContainerSize() {
 const DESIGN_W = 1100;
 const DESIGN_H = 900;
 
+// Región visible de la placa (la carcasa es ~785×785, centrada en el diseño).
+// Encuadramos esta zona para que la placa ocupe el máximo del lienzo.
+// Recuadro más ajustado = placa más grande (mismo centro 592.5, 432.5).
+const PLATE_VIEW = { x: 217, y: 57, w: 751, h: 751 };
+
 
 const API_BASE = import.meta.env?.VITE_API_BASE || "https://custom.disevenapp.com/api";
 
@@ -506,11 +511,11 @@ const DesignerCanvas = () => {
     return false;
   };
   const [canvasHostRef, hostSize] = useContainerSize();
-  // Escala para encajar + un zoom que recorta el margen vacío y agranda la placa.
-  // El canvasCard tiene overflow:hidden, así que el sobrante se recorta sin romper
-  // la geometría (el puntero sigue usando /scale).
-  const PLATE_ZOOM = 1.12;
-  const scale = Math.min(hostSize.w / DESIGN_W, hostSize.h / DESIGN_H) * PLATE_ZOOM;
+  // Encuadramos SOLO la región de la placa (PLATE_VIEW) y la centramos en el
+  // lienzo, para darle el máximo protagonismo (especialmente en móvil).
+  const scale = Math.min(hostSize.w / PLATE_VIEW.w, hostSize.h / PLATE_VIEW.h);
+  const offsetX = (hostSize.w - PLATE_VIEW.w * scale) / 2 - PLATE_VIEW.x * scale;
+  const offsetY = (hostSize.h - PLATE_VIEW.h * scale) / 2 - PLATE_VIEW.y * scale;
 // === ADD (cerca a tus constantes): solo 3 previews ===
 // Previews rápidos: toma 3 primeros de la categoría actual
 
@@ -1194,8 +1199,8 @@ const handleStagePointerDown = useCallback((e) => {
   const pos = stage.getPointerPosition();
   if (!pos) return;
 
-  // Corrige por scale del Stage
-  const p = { x: pos.x / scale, y: pos.y / scale };
+  // Corrige por scale y desplazamiento (offset) del Stage
+  const p = { x: (pos.x - offsetX) / scale, y: (pos.y - offsetY) / scale };
 
   // Si toca fuera de cualquier carcasa, limpia selección
   if (!isInsideAnyPlate(p)) { clearSelection(); return; }
@@ -1228,7 +1233,7 @@ const handleStagePointerDown = useCallback((e) => {
 
   setActiveArea(area);
   setActiveSlotIdx(hitIdx);
-}, [scale, plateMode, slotsSingle, slotsLeft, slotsRight, clearSelection]);
+}, [scale, offsetX, offsetY, plateMode, slotsSingle, slotsLeft, slotsRight, clearSelection]);
 
 
 // Reposicionar cuando cambian plantillas o color
@@ -2980,10 +2985,13 @@ const forceFullRebuild = () => {
     <Stage
       key={forceRenderKey}
     ref={stageRef}
-    width={DESIGN_W}
-    height={DESIGN_H}
-    scale={{ x: scale, y: scale }}
-    style={{ width: DESIGN_W * scale, height: DESIGN_H * scale, touchAction: 'none' }} // <- clave en iOS
+    width={hostSize.w}
+    height={hostSize.h}
+    scaleX={scale}
+    scaleY={scale}
+    x={offsetX}
+    y={offsetY}
+    style={{ width: hostSize.w, height: hostSize.h, touchAction: 'none' }} // <- clave en iOS
     onPointerDown={handleStagePointerDown}>
 
     <Layer>

@@ -663,13 +663,70 @@
 .sidebar { animation-delay: 80ms; }
 .canvasCard { animation-delay: 140ms; }
 
-/* ---------- Responsive ---------- */
-@media (max-width: 1100px) {
-  .layout { grid-template-columns: 1fr; }
-  .sidebar { position: static; height: auto; margin: 14px; }
-  .workbench { grid-template-columns: 1fr; }
-  .smallButton2reset { left: auto; right: 16px; top: 150px; }
-}
 @media (min-width: 1000px) and (max-width: 1899.98px) {
   .mainArea { padding: 22px; }
+}
+
+/* ---------- Responsive: tablet y móvil ---------- */
+@media (max-width: 1100px) {
+  /* En pantallas pequeñas no cabe todo sin scroll: lo permitimos */
+  .contenedor { height: auto; min-height: 100dvh; overflow-y: auto; }
+
+  /* Apilar: lienzo arriba, panel de control abajo */
+  .layout {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .mainArea {
+    order: 1;
+    padding: 12px;
+    overflow: visible;
+  }
+  .sidebar {
+    order: 2;
+    position: static;
+    width: auto;
+    max-height: none;
+    overflow: visible;
+    margin: 0 12px 18px;
+  }
+  .workbench { display: flex; }
+  .canvasPane { min-height: 0; }
+  /* Lienzo cuadrado: la placa (carcasa ~cuadrada) lo ocupa casi por completo */
+  .canvasCard {
+    flex: 0 0 auto;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+  }
+
+  /* Barra de acciones: en flujo, centrada, con salto de línea */
+  .contendor3 {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 12px 0;
+  }
+
+  /* Botones flotantes (reset / exportar) pasan al flujo, centrados */
+  .smallButton2reset {
+    position: static;
+    align-self: center;
+    margin: 8px auto 0;
+  }
+
+  /* Logo decorativo fuera en móvil (evita chocar con el botón de WhatsApp) */
+  .logo { display: none; }
+}
+
+@media (max-width: 560px) {
+  .smallButton3 { padding: 9px 12px; font-size: 13px; }
+  .contendor3 { gap: 6px; }
+  .modalBody { padding: 16px; }
+  .plantillaGrid { grid-template-columns: repeat(3, 1fr); }
+  .iconGridSide { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .mainArea { padding: 10px; }
 }
