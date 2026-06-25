@@ -1,13 +1,16 @@
 // src/components/Auth/LoginModal.jsx
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { usePrefs } from "../../i18n/PrefsContext.jsx";
 import styles from "./loginModal.module.css";
 import Swal from 'sweetalert2';
 
 export default function LoginModal({ open, onClose }) {
   const nav = useNavigate();
-const { user, login, register, logout, loginAsGuest } = useAuth();  const [mode, setMode] = useState("login"); // login | register | invitado
+  const { user, login, register, loginAsGuest } = useAuth();
+  const { t } = usePrefs();
+  const [mode, setMode] = useState("login"); // login | register | invitado
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -17,7 +20,8 @@ const { user, login, register, logout, loginAsGuest } = useAuth();  const [mode,
   const initialRef = useRef(null);
 
   useEffect(() => {
-    if (user) {
+    // Solo reaccionamos a un inicio de sesión real (no al invitado automático)
+    if (user && !user.guest) {
       onClose?.();
       nav("/designer"); // sin replace para poder volver al Home
     }
@@ -78,7 +82,7 @@ async function handleSubmit(e) {
         {/* Header */}
         <div className={styles.authHeader}>
           <h3 className={styles.authTitle}>
-            {mode === "login" ? "Iniciar sesión" : mode === "register" ? "Crear cuenta" : "Ingresar como invitado"}
+            {mode === "login" ? t("login.signIn") : mode === "register" ? t("login.createAccount") : t("login.guestTab")}
           </h3>
           <button className={styles.closeBtn} onClick={onClose} aria-label="Cerrar">
             {/* ícono close */}
@@ -91,18 +95,18 @@ async function handleSubmit(e) {
         {/* Body */}
         <div className={styles.authBody}>
           {/* Tabs */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-            <TabButton active={mode==="login"} onClick={()=>setMode("login")} label="Iniciar sesión" />
-            <TabButton active={mode==="register"} onClick={()=>setMode("register")} label="Crear cuenta" />
-            <TabButton active={mode==="invitado"} onClick={()=>setMode("invitado")} label="Invitado" />
+          <div className={styles.tabRow}>
+            <TabButton active={mode==="login"} onClick={()=>setMode("login")} label={t("login.signIn")} />
+            <TabButton active={mode==="register"} onClick={()=>setMode("register")} label={t("login.createAccount")} />
+            <TabButton active={mode==="invitado"} onClick={()=>setMode("invitado")} label={t("login.guest")} />
           </div>
 
           <form onSubmit={handleSubmit}>
             {mode === "register" && (
-              <Field label="Nombre">
+              <Field label={t("login.name")}>
                 <Input
                   ref={initialRef}
-                  placeholder="Nombre"
+                  placeholder={t("login.name")}
                   value={username}
                   onChange={setUsername}
                   icon="user"
@@ -112,7 +116,7 @@ async function handleSubmit(e) {
 
             {mode !== "invitado" && (
               <>
-                <Field label="Email">
+                <Field label={t("login.email")}>
                   <Input
                     ref={mode === "login" ? initialRef : undefined}
                     type="email"
@@ -124,7 +128,7 @@ async function handleSubmit(e) {
                   />
                 </Field>
 
-                <Field label="Contraseña">
+                <Field label={t("login.password")}>
                   <Input
                     type="password"
                     placeholder="••••••••"
@@ -137,7 +141,7 @@ async function handleSubmit(e) {
               </>
             )}
 
-            {error && <div style={{ marginTop: 8, color: "#ffbcbc" }}>{error}</div>}
+            {error && <div className={styles.error}>{error}</div>}
 
           <div className={styles.actions}>
   <button
@@ -145,11 +149,11 @@ async function handleSubmit(e) {
     disabled={loading}
     className={styles.btnPrimaryAuth}
   >
-    {loading ? "Cargando..." : mode === "login"
-      ? "Entrar"
+    {loading ? t("login.loading") : mode === "login"
+      ? t("login.enter")
       : mode === "register"
-      ? "Registrarme"
-      : "Entrar como invitado"}
+      ? t("login.register")
+      : t("login.enterAsGuest")}
   </button>
 
   <button
@@ -157,7 +161,7 @@ async function handleSubmit(e) {
     onClick={onClose}
     className={styles.btnGhostAuth}
   >
-    Cerrar
+    {t("login.close")}
   </button>
 </div>
 
@@ -176,12 +180,7 @@ function TabButton({ active, onClick, label }) {
     <button
       type="button"
       onClick={onClick}
-      className="btnGhost"
-      style={{
-        borderRadius: 12,
-        padding: "10px 12px",
-        ...(active ? { background: "var(--glass)", borderColor: "var(--stroke)" } : {})
-      }}
+      className={`${styles.tab} ${active ? styles.tabActive : ""}`}
     >
       {label}
     </button>
@@ -218,25 +217,28 @@ const icons = {
   )
 };
 
-const Input = Object.assign(
-  ({ value, onChange, placeholder, type="text", icon, required, ...rest }, ref) => (
+const Input = forwardRef(function Input(
+  { value, onChange, placeholder, type = "text", icon, required, ...rest },
+  ref
+) {
+  return (
     <div style={{ position: "relative" }}>
       {icon && (
-        <span style={{ position: "absolute", left: 12, top: 12, opacity: .6 }}>
+        <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", opacity: 0.55, display: "inline-flex" }}>
           {icons[icon]}
         </span>
       )}
       <input
         ref={ref}
         className={styles.input}
-        style={{ paddingLeft: icon ? 36 : 12 }}
+        style={{ paddingLeft: icon ? 40 : 14 }}
         value={value}
-        onChange={(e)=>onChange(e.target.value)}
+        onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         type={type}
         required={required}
         {...rest}
       />
     </div>
-  )
-);
+  );
+});

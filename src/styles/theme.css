@@ -1,0 +1,203 @@
+/* =====================================================================
+   DISEVEN · Sistema de diseño premium (Azul tech · oscuro)
+   Fuente única de verdad para color, tipografía, sombras y radios.
+   ===================================================================== */
+
+:root {
+  /* ---- Superficies (gris grafito neutro, oscuro premium suave) ---- */
+  --bg-0: #16181b;        /* wells / placeholders (más profundo) */
+  --bg-1: #1f2125;        /* fondo base de la app */
+  --bg-2: #292c31;        /* panel / tarjeta */
+  --bg-3: #34373d;        /* hover de panel */
+
+  /* ---- Vidrio y bordes (tinte claro sobre oscuro) ---- */
+  --glass: rgba(255, 255, 255, 0.045);
+  --glass-2: rgba(255, 255, 255, 0.075);
+  --glass-strong: rgba(255, 255, 255, 0.11);
+  --stroke: rgba(255, 255, 255, 0.09);
+  --stroke-strong: rgba(255, 255, 255, 0.16);
+  --stroke-brand: rgba(89, 209, 255, 0.5);
+
+  /* ---- Marca DISEVEN (azul) ---- */
+  --brand-1: #0fa2da;
+  --brand-2: #59d1ff;
+  --brand-3: #0b6ea4;
+  --brand-grad: linear-gradient(120deg, #0fa2da 0%, #59d1ff 100%);
+  --brand-grad-soft: linear-gradient(135deg, rgba(15, 162, 218, 0.20), rgba(89, 209, 255, 0.10));
+  --brand-glow: 0 0 0 1px rgba(89, 209, 255, 0.28), 0 8px 28px rgba(15, 162, 218, 0.32);
+
+  /* ---- Texto (neutro) ---- */
+  --text: #f0f1f3;
+  --text-soft: #cfd1d5;
+  --text-muted: #989ca2;
+  --text-dim: #63676d;
+  --text-ink: #04222e;    /* texto sobre acento azul */
+
+  /* ---- Estados ---- */
+  --danger: #f0556b;
+  --danger-soft: rgba(240, 85, 107, 0.14);
+  --warn: #f5c451;
+  --ok: #43d6a3;
+
+  /* ---- Radios ---- */
+  --r-xs: 8px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* ---- Sombras (profundas) ---- */
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+  /* ---- Texto claro (para uso sobre fotos/acentos) ---- */
+  --on-photo: #f6f9fc;
+  --on-photo-soft: #d8e2ec;
+
+  /* ---- Tipografía / motion ---- */
+  --font: "Montserrat", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  color-scheme: dark;
+}
+
+/* ===================== TEMA CLARO (gris neutro) ===================== */
+:root[data-theme="light"] {
+  --bg-0: #e6e8ec;
+  --bg-1: #f3f5f8;
+  --bg-2: #ffffff;
+  --bg-3: #f8f9fb;
+
+  --glass: rgba(20, 24, 30, 0.035);
+  --glass-2: rgba(20, 24, 30, 0.06);
+  --glass-strong: rgba(20, 24, 30, 0.09);
+  --stroke: rgba(20, 24, 30, 0.11);
+  --stroke-strong: rgba(20, 24, 30, 0.17);
+  --stroke-brand: rgba(15, 162, 218, 0.55);
+
+  --brand-2: #2bb8ec;
+  --brand-grad-soft: linear-gradient(135deg, rgba(15, 162, 218, 0.14), rgba(43, 184, 236, 0.07));
+
+  --text: #1a1d22;
+  --text-soft: #353a42;
+  --text-muted: #5d646d;
+  --text-dim: #8a9098;
+
+  --shadow-sm: 0 2px 10px rgba(20, 24, 30, 0.07);
+  --shadow-md: 0 12px 32px rgba(20, 24, 30, 0.10);
+  --shadow-lg: 0 24px 60px rgba(20, 24, 30, 0.14);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  color-scheme: light;
+}
+:root[data-theme="light"] * {
+  scrollbar-color: rgba(20, 24, 30, 0.22) transparent;
+}
+:root[data-theme="light"] *::-webkit-scrollbar-thumb {
+  background: rgba(20, 24, 30, 0.18);
+  background-clip: content-box;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font);
+  background: var(--bg-1);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+::selection {
+  background: rgba(89, 209, 255, 0.28);
+  color: #fff;
+}
+
+/* Scrollbar premium (oscuro) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.26);
+  background-clip: content-box;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(89, 209, 255, 0.4);
+  border-radius: var(--r-sm);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.brandText {
+  background: var(--brand-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ============ SweetAlert2 · skin premium oscuro ============ */
+.swal2-popup.swal2-modal {
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1)) !important;
+  border: 1px solid var(--stroke) !important;
+  border-radius: var(--r-xl) !important;
+  box-shadow: var(--shadow-lg) !important;
+  color: var(--text) !important;
+}
+.swal2-title {
+  color: var(--text) !important;
+  font-weight: 600 !important;
+}
+.swal2-html-container {
+  color: var(--text-muted) !important;
+}
+.swal2-actions .swal2-confirm,
+.swal2-actions .swal2-cancel {
+  border-radius: var(--r-pill) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  box-shadow: none !important;
+}
+.swal2-actions .swal2-confirm {
+  background: var(--brand-grad) !important;
+  color: var(--text-ink) !important;
+}
+.swal2-input,
+.swal2-textarea {
+  background: var(--bg-0) !important;
+  border: 1px solid var(--stroke) !important;
+  color: var(--text) !important;
+  border-radius: var(--r-sm) !important;
+}

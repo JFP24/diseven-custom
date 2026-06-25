@@ -1,24 +1,18 @@
 // src/components/Home/home.jsx
 import { useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import styles from "./home.module.css";
 import { useAuth } from "../../auth/AuthContext.jsx";
-import LoginModal from "../Auth/LoginModal.jsx";
-import ProfileBar from "../Auth/ProfileBar.jsx";
+import { usePrefs } from "../../i18n/PrefsContext.jsx";
+import PrefsToggle from "../PrefsToggle.jsx";
 
 const imgHome = "/assets/imgHome/suiches.jpg";
 const logoBlue = "/assets/imgHome/logoDiseven.png";
 
 export default function Home() {
-  const { user, ready } = useAuth();
-  const nav = useNavigate();
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!ready) return;
-    if (open && user) setOpen(false);
-  }, [ready, open, user]);
+  const { ready } = useAuth();
+  const { t } = usePrefs();
 
   const [showIntro, setShowIntro] = useState(() => !sessionStorage.getItem("home-intro"));
   useEffect(() => {
@@ -31,13 +25,6 @@ export default function Home() {
     }
   }, [showIntro]);
 
-  const handleCtaClick = (e) => {
-    if (!user) {
-      e.preventDefault();
-      setOpen(true);
-    }
-  };
-
   if (!ready) {
     return (
       <div className={styles.hero} style={{ display: "grid", placeItems: "center" }}>
@@ -48,13 +35,7 @@ export default function Home() {
 
   return (
     <>
-      {/* Top bar */}
-      <header className={styles.nav}>
-        <ProfileBar onClickHome={() => nav("/")} />
-        <div className={styles.logoWrap}>
-          <img src={logoBlue} alt="DISEVEN" className={styles.logoImg}/>
-        </div>
-      </header>
+      <PrefsToggle className={styles.prefsFloat} />
 
       {/* Hero */}
       <div className={styles.hero}>
@@ -69,13 +50,22 @@ export default function Home() {
         />
 
         <div className={styles.heroInner}>
+          <motion.span
+            className={styles.eyebrow}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.5 }}
+          >
+            {t("home.eyebrow")}
+          </motion.span>
+
           <motion.h1
             className={styles.title}
             initial={{ opacity: 0, y: 22 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.45, duration: 0.6 }}
           >
-            Toma el control de tus espacios con elegancia
+            {t("home.titlePre")}<em>{t("home.titleEm")}</em>
           </motion.h1>
 
           <motion.p
@@ -84,7 +74,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6, duration: 0.6 }}
           >
-            Conoce los diferentes acabados de carcasas Premium que tenemos disponibles para ti.
+            {t("home.subtitle")}
           </motion.p>
 
           <motion.div
@@ -93,10 +83,10 @@ export default function Home() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.8, duration: 0.6 }}
           >
-            <Link to="/designer" className={styles.btnPrimary} onClick={handleCtaClick}>
-              Diseñar mi placa
+            <Link to="/designer" className={styles.btnPrimary}>
+              {t("home.designCta")}
             </Link>
-            <a href="/catalogo.pdf" className={styles.btnGhost}>Ver catálogo</a>
+            <a href="/catalogo.pdf" className={styles.btnGhost}>{t("home.viewCatalog")}</a>
           </motion.div>
         </div>
       </div>
@@ -104,21 +94,18 @@ export default function Home() {
       {/* Split */}
       <section className={styles.split}>
         <div className={styles.splitText}>
-          <h2>Control táctil con look arquitectónico</h2>
-          <p>
-            DISEVEN integra diseño y tecnología: interfaces capacitivas, tipografía grabada y
-            materiales nobles para espacios de alto estándar.
-          </p>
+          <h2>{t("home.splitTitle")}</h2>
+          <p>{t("home.splitP")}</p>
           <ul className={styles.bullets}>
-            <li>Iconografía minimal y retroiluminación uniforme</li>
-            <li>Layouts modulares (1 a 8 áreas táctiles)</li>
-            <li>Compatibles con tus escenarios y escenas favoritas</li>
+            <li>{t("home.bullet1")}</li>
+            <li>{t("home.bullet2")}</li>
+            <li>{t("home.bullet3")}</li>
           </ul>
           <div className={styles.splitCtas}>
-            <Link to="/designer" className={styles.btnPrimary} onClick={handleCtaClick}>
-              Probar el diseñador
+            <Link to="/designer" className={styles.btnPrimary}>
+              {t("home.tryDesigner")}
             </Link>
-            <a className={styles.link} href="/catalogo.pdf">Descargar ficha técnica</a>
+            <a className={styles.link} href="/catalogo.pdf">{t("home.downloadSheet")}</a>
           </div>
         </div>
         <div className={styles.splitMedia}>
@@ -130,31 +117,29 @@ export default function Home() {
       <section className={styles.features}>
         <div className={styles.featuresGrid}>
           <article className={styles.featureCard}>
-            <h3>Respuesta precisa</h3>
-            <p>Sensores táctiles calibrados y feedback visual inmediato.</p>
+            <h3>{t("home.f1t")}</h3>
+            <p>{t("home.f1p")}</p>
           </article>
           <article className={styles.featureCard}>
-            <h3>Durabilidad real</h3>
-            <p>Frentes metálicos y acabados que resisten el uso diario.</p>
+            <h3>{t("home.f2t")}</h3>
+            <p>{t("home.f2p")}</p>
           </article>
           <article className={styles.featureCard}>
-            <h3>Instalación limpia</h3>
-            <p>Compatibles con cajas estándar y cableado existente.</p>
+            <h3>{t("home.f3t")}</h3>
+            <p>{t("home.f3p")}</p>
           </article>
         </div>
       </section>
    <section className={styles.materials}>
-        <h2>Acabados disponibles</h2>
-        <p className={styles.materialsSub}>Sobrios, atemporales y combinables.</p>
+        <h2>{t("home.materialsTitle")}</h2>
+        <p className={styles.materialsSub}>{t("home.materialsSub")}</p>
         <div className={styles.swatches}>
-          <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotWhite}`} /> Blanco</div>
-          <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotBlack}`} /> Negro</div>
-          <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotNickel}`} /> Níquel</div>
-          <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotGold}`} /> Oro cepillado</div>
+          <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotWhite}`} /> {t("home.mWhite")}</div>
+          <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotBlack}`} /> {t("home.mBlack")}</div>
+          <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotNickel}`} /> {t("home.mNickel")}</div>
+          <div className={styles.swatch}><span className={`${styles.dot} ${styles.dotGold}`} /> {t("home.mGold")}</div>
         </div>
       </section>
-      {/* Modal Auth */}
-      <LoginModal open={open && !user} onClose={() => setOpen(false)} />
     </>
   );
 }

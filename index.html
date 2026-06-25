@@ -1,13 +1,37 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/logo.png" />
+    <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Diseven-Custom</title>
+    <meta name="theme-color" content="#f3f5f8" />
+    <meta
+      name="description"
+      content="DISEVEN — Diseña placas de suiches táctiles premium. Configura acabados, plantillas e iconografía con elegancia arquitectónica."
+    />
+    <title>DISEVEN · Diseñador de placas premium</title>
+
+    <!-- Tipografía premium -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Aplica tema/idioma guardados antes de pintar (evita parpadeo)
+      (function () {
+        try {
+          var th = localStorage.getItem("theme");
+          document.documentElement.dataset.theme = th === "dark" ? "dark" : "light";
+          var lg = localStorage.getItem("lang");
+          if (lg === "es" || lg === "en") document.documentElement.lang = lg;
+        } catch (e) { document.documentElement.dataset.theme = "light"; }
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

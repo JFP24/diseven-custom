@@ -6,12 +6,22 @@ const reloadIcon = "/assets/ICONOS/icono-reload.png";
 const logoDiseven = "/assets/imgHome/disevenhome.png";
 import { FolderKanban, Save, RotateCcw } from "lucide-react";
 import ProfileBar from "./Auth/ProfileBar.jsx";
-import { useNavigate, Link } from "react-router-dom";
+import LoginModal from "./Auth/LoginModal.jsx";
+import PrefsToggle from "./PrefsToggle.jsx";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
+import { usePrefs } from "../i18n/PrefsContext.jsx";
+import { LogIn } from "lucide-react";
 import Swal from 'sweetalert2';
 
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+// --- Métrica unificada del icono+etiqueta (usada por editor y exportación) ---
+// Mantener en sincronía con drawIconLabel() de la exportación.
+const ICON_LABEL_GAP = 6;          // separación icono → etiqueta
+const labelFontSize = (size) => Math.max(10, Math.round(size * 0.19));
+const labelLineCount = (text) => (text.trim().length > 10 ? 2 : 1);
+
 const IconWithLabel = ({
   x, y, size, src, label, isWhite, onSelect
 }) => {
@@ -21,62 +31,36 @@ const IconWithLabel = ({
   const labelText = label?.trim() || "";
   const hasLabel = labelText.length > 1;
 
-  // Tamaño equilibrado
-  const fontSize = Math.round(size * 0.19);
+  const fontSize = labelFontSize(size);
+  const lineHeight = 1.15;
+  const labelHeight = labelLineCount(labelText) * (fontSize * lineHeight);
 
-  const labelPadding = 4;
-
-  // Altura dinámica: si es largo → 2 líneas
-  const multiline = labelText.length > 10; // puedes ajustar este número
-  const lineCount = multiline ? 2 : 1;
-
-  const labelHeight = lineCount * (fontSize * 1.1);
-
-  // Offset del texto
-  const textYOffset =
-    size < 100
-      ? size * 1
-      : size + labelPadding;
-
-  const iconYOffset = hasLabel
-    ? (size < 100 ? -4 : 2)
-    : -(size / 3.7) + (labelHeight / 1);
+  // El texto se centra horizontalmente sobre el icono usando un bloque
+  // más ancho que el icono (margen de 30) desplazado -15 a la izquierda.
+  const TEXT_PAD = 30;
 
   return (
-    <Group
-      x={x}
-      y={y}
-      listening
-      onClick={onSelect}
-      onTap={onSelect}
-    >
-      {/* Icono */}
-      <KonvaImage
-        image={iconImg}
-        width={size}
-        height={size}
-        y={iconYOffset}
-       
-      
-      />
+    <Group x={x} y={y} listening onClick={onSelect} onTap={onSelect}>
+      {/* Icono: centrado en la parte superior del grupo */}
+      <KonvaImage image={iconImg} width={size} height={size} y={0} />
 
-      {/* Texto */}
+      {/* Etiqueta: centrada justo debajo del icono */}
       {hasLabel && (
         <Text
-          x={-15}
-          y={textYOffset}
-          width={size + 30}
+          x={-TEXT_PAD / 2}
+          y={size + ICON_LABEL_GAP}
+          width={size + TEXT_PAD}
           height={labelHeight}
           text={labelText}
           fontFamily="Montserrat"
           fontSize={fontSize}
-          fontStyle="600"  // Semi-bold Montserrat
+          fontStyle="600"
           fill={isWhite ? "#ffffff" : "#1e1e1e"}
           align="center"
-          verticalAlign="middle"
+          verticalAlign="top"
           wrap="word"
           ellipsis={false}
-          lineHeight={1.1}
+          lineHeight={lineHeight}
           listening={false}
         />
       )}
@@ -375,16 +359,15 @@ function layoutIconInSlot(slot, withLabel = true) {
 
 function useContainerSize() {
   const ref = React.useRef(null);
-  const [size, setSize] = React.useState({ w: 100, h: 900 });
+  const [size, setSize] = React.useState({ w: 100, h: 100 });
 
   React.useEffect(() => {
     if (!ref.current) return;
     const ro = new ResizeObserver(([entry]) => {
-      const cw = entry.contentRect.width;
-      // Mantén la relación original 1100:900
-      const ratio = 900 / 1100;
-      const w = Math.max(320, cw);     // mínimo razonable
-      const h = Math.round(w * ratio); // alto en función del ancho
+      // Medimos el espacio real disponible (ancho y alto) para que el
+      // lienzo se escale y quepa sin provocar scroll.
+      const w = Math.max(240, entry.contentRect.width);
+      const h = Math.max(240, entry.contentRect.height);
       setSize({ w, h });
     });
     ro.observe(ref.current);
@@ -489,19 +472,45 @@ async function apiDeleteProject(id) {
 
 const DesignerCanvas = () => {
   const nav = useNavigate();
-    const { user } = useAuth();
+  const { user, ready, loginAsGuest } = useAuth();
+  const { t } = usePrefs();
   const [open, setOpen] = useState(false);
 
-  // ❌ Quitamos el redirect automático. Así puedes volver a Home con sesión activa.
-  // ✅ Si el modal está abierto y se logra login (user aparece), cerramos y navegamos.
+  // Acceso libre: si nadie ha iniciado sesión, entramos como invitado.
   useEffect(() => {
-    if (open && user) {
+    if (ready && !user) loginAsGuest();
+  }, [ready, user, loginAsGuest]);
+
+  // Si el modal de login está abierto y el usuario inicia sesión de verdad
+  // (deja de ser invitado), lo cerramos.
+  useEffect(() => {
+    if (open && user && !user.guest) {
       setOpen(false);
-      nav("/designer");
     }
-  }, [open, user, nav]);
+  }, [open, user]);
+
+  // Exige sesión real para guardar. Devuelve true si puede continuar.
+  const requireLogin = () => {
+    if (user && !user.guest) return true;
+    Swal.fire({
+      title: "Inicia sesión para guardar",
+      text: "Crea una cuenta o inicia sesión para guardar tus proyectos y plantillas.",
+      icon: "info",
+      showCancelButton: true,
+      confirmButtonText: "Iniciar sesión",
+      cancelButtonText: "Seguir como invitado",
+      confirmButtonColor: "#0fa2da",
+    }).then((res) => {
+      if (res.isConfirmed) setOpen(true);
+    });
+    return false;
+  };
   const [canvasHostRef, hostSize] = useContainerSize();
-  const scale = Math.min(hostSize.w / DESIGN_W, hostSize.h / DESIGN_H);
+  // Escala para encajar + un zoom que recorta el margen vacío y agranda la placa.
+  // El canvasCard tiene overflow:hidden, así que el sobrante se recorta sin romper
+  // la geometría (el puntero sigue usando /scale).
+  const PLATE_ZOOM = 1.12;
+  const scale = Math.min(hostSize.w / DESIGN_W, hostSize.h / DESIGN_H) * PLATE_ZOOM;
 // === ADD (cerca a tus constantes): solo 3 previews ===
 // Previews rápidos: toma 3 primeros de la categoría actual
 
@@ -648,19 +657,16 @@ const [newProjectName, setNewProjectName] = useState("");
 
 
 const refreshProjects = useCallback(async () => {
+  // Invitado (o sin sesión): no hay proyectos remotos; dejamos todo vacío
+  // y sin alertas. El login se solicita al intentar guardar.
+  if (!user || user.guest) {
+    setProjects([]);
+    setTemplatesByProject(new Map());
+    setSavedList([]);
+    setProjectGroups(new Map());
+    return;
+  }
   try {
-if (user?.guest) {
-  Swal.fire({
-    title: 'Acción no permitida',
-    text: 'En modo invitado no se puede guardar. ¡Crea una cuenta para hacerlo!',
-    icon: 'warning',
-    confirmButtonText: 'Entendido',
-    background: '#1e293b',      // estilo oscuro
-    color: '#fff',
-    confirmButtonColor: '#0fa2da'
-  });
-  return;
-}
     // 1. Traer proyectos desde backend
     const list = await apiFetchProjects();
     setProjects(list);
@@ -682,7 +688,7 @@ if (user?.guest) {
   } catch (err) {
     console.error("No se pudieron cargar proyectos o plantillas:", err);
   }
-}, [selectedProjectId]);
+}, [selectedProjectId, user]);
 
 
 useEffect(() => {
@@ -691,6 +697,9 @@ useEffect(() => {
 
 
 const handleSaveTemplateClick = async () => {
+  // Guardar requiere sesión real
+  if (!requireLogin()) return;
+
   // Traemos última info
   await refreshProjects();
   refreshSaved(); // esto sigue siendo tu cache local de plantillas
@@ -807,6 +816,7 @@ const buildTemplateSnapshot = ({ projectName, placeName }) => {
   };
 };
 const saveTemplateNow = async () => {
+  if (!requireLogin()) return;
   const projectId = selectedProjectId;
   const projectNameClean = (selectedProjectName || "").trim();
   const placeInput = (labelInput || "").trim(); // lo que el usuario está escribiendo ahora
@@ -2008,19 +2018,29 @@ const forceFullRebuild = () => {
     <div style={{  display: "grid", gridTemplateRows: "auto 1fr" }}>
     <ProfileBar onClickHome={() => nav("/")} />
     <div className={styles.contendor3}>
+    <PrefsToggle />
+    {user?.guest && (
+      <button
+        className={styles.smallButton3}
+        style={{ color: 'var(--brand-1)', borderColor: 'var(--stroke-brand)' }}
+        onClick={() => setOpen(true)}
+      >
+        <LogIn /> {t("common.login")}
+      </button>
+    )}
     <button
       className={styles.smallButton3}
-      onClick={() => { 
-      refreshProjects(); 
-      refreshSaved(); 
-      setViewProjectId(null); 
-      setProjectsModalOpen(true); 
+      onClick={() => {
+      refreshProjects();
+      refreshSaved();
+      setViewProjectId(null);
+      setProjectsModalOpen(true);
     }}
     >
-  <FolderKanban /> Mis Proyectos
+  <FolderKanban /> {t("editor.myProjects")}
 </button>
   <button className={styles.smallButton3} onClick={handleSaveTemplateClick}>
-     <Save  /> Guardar
+     <Save  /> {t("common.save")}
   </button>
 
 </div>
@@ -2032,15 +2052,19 @@ const forceFullRebuild = () => {
   type="button"
   className={styles.smallButton2reset}
   onClick={resetSwitch}
-  title="Reiniciar suiche"
+  title={t("editor.resetTitle")}
 >
   <img src={reloadIcon} alt="reload template"  className={styles.imagenR}/>
  
 </button>
 
 
-<button onClick={handleDownloadCurrentTemplate}>
-  Exportar Carpeta
+<button
+  className={styles.smallButton2reset}
+  style={{ left: 'auto', right: 16, color: 'var(--brand-2)', borderColor: 'var(--stroke-brand)' }}
+  onClick={handleDownloadCurrentTemplate}
+>
+  {t("common.exportPng")}
 </button>
 
 
@@ -2048,8 +2072,8 @@ const forceFullRebuild = () => {
 <Modal
  title={
     viewProjectId
-      ? `Proyecto: ${projects.find(p => p._id === viewProjectId)?.name || ''}`
-      : "Proyectos"
+      ? `${projects.find(p => p._id === viewProjectId)?.name || ''}`
+      : t("modal.projects")
   }
   isOpen={isProjectsModalOpen}
   onClose={() => { setProjectsModalOpen(false); setViewProjectId(null); }}
@@ -2066,7 +2090,7 @@ const forceFullRebuild = () => {
     exportProjectZIP(selectedProjectId);
   }}
 >
-  Exportar ZIP
+  {t("common.exportZip")}
 </button>
 
   {/* 👇 SOLO mostramos selección/creación de proyectos si NO estamos dentro de uno */}
@@ -2083,7 +2107,7 @@ const forceFullRebuild = () => {
       }}
     >
       {projects.length === 0 ? (
-        <div style={{ fontSize: 13, opacity: .7 }}>Aún no hay proyectos.</div>
+        <div style={{ fontSize: 13, opacity: .7 }}>{t("modal.noProjects")}</div>
       ) : projects.map(p => (
         <label
           key={p._id}
@@ -2160,7 +2184,7 @@ const forceFullRebuild = () => {
     }
   }}
 >
-  Renombrar
+  {t("common.rename")}
 </button>
 
 
@@ -2216,7 +2240,7 @@ const forceFullRebuild = () => {
   }}
   style={{ borderColor: "#ef4444", color: "#ef4444" }}
 >
-  Eliminar
+  {t("common.delete")}
 </button>
 
 
@@ -2226,19 +2250,23 @@ const forceFullRebuild = () => {
 
   
 <div style={{ display: 'grid', gap: 8, marginTop: 8, marginBottom: 18 }}>
-  <div style={{ fontSize: 14, opacity: .8 }}>Nuevo Proyecto:</div>
+  <div style={{ fontSize: 14, opacity: .8 }}>{t("modal.newProject")}</div>
 
   <div style={{ display: 'flex', gap: 8 }}>
     <input
       type="text"
-      placeholder="Nombre del nuevo proyecto"
+      placeholder={t("modal.newProjectPlaceholder")}
       value={newProjectName}
       onChange={(e) => setNewProjectName(e.target.value)}
       style={{
         flex: 1,
-        padding: '8px 10px',
-        borderRadius: 6,
-        border: '1px solid #ccc'
+        padding: '11px 14px',
+        borderRadius: 12,
+        border: '1px solid var(--stroke)',
+        background: 'var(--glass)',
+        color: 'var(--text)',
+        fontSize: 15,
+        outline: 'none',
       }}
     />
 
@@ -2260,19 +2288,8 @@ const forceFullRebuild = () => {
       return;
     }
 
-    // Modo invitado no permite guardar
-    if (user?.guest) {
-      Swal.fire({
-        title: 'Acción no permitida',
-        text: 'En modo invitado no se puede guardar. ¡Crea una cuenta para hacerlo!',
-        icon: 'warning',
-        confirmButtonText: 'Entendido',
-        background: '#1e293b',
-        color: '#fff',
-        confirmButtonColor: '#0fa2da',
-      });
-      return;
-    }
+    // Crear proyecto requiere sesión real
+    if (!requireLogin()) return;
 
     try {
       const nuevoProyecto = await apiCreateProject(nombreLimpio);
@@ -2306,7 +2323,7 @@ const forceFullRebuild = () => {
     }
   }}
 >
-  Crear
+  {t("common.create")}
 </button>
 
     
@@ -2328,7 +2345,7 @@ const forceFullRebuild = () => {
     >
       {projects.length === 0 && (
         <div style={{ gridColumn: '1 / -1', opacity: .7 }}>
-          Aún no hay proyectos.
+          {t("modal.noProjects")}
         </div>
       )}
 
@@ -2372,19 +2389,19 @@ const forceFullRebuild = () => {
 
       style={{
         textAlign: 'left',
-        border: '1px solid rgba(0,0,0,.10)',
+        border: '1px solid var(--stroke)',
         borderRadius: 16,
         overflow: 'hidden',
-        background: '#f3f1f1ff',
+        background: 'var(--glass-2)',
         cursor: 'pointer',
         padding: 0,
-        boxShadow: '0 6px 18px rgba(0,0,0,.06)'
+        boxShadow: 'var(--shadow-md)'
       }}
     >
-      
+
       <div style={{
         height: 220,
-        background: '#b3b3b3ff',
+        background: 'var(--bg-0)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -2403,16 +2420,16 @@ const forceFullRebuild = () => {
             draggable={false}
           />
         ) : (
-          <div style={{ opacity: .6, fontSize: 13 }}>Sin imagen</div>
+          <div style={{ opacity: .6, fontSize: 13 }}>{t("modal.noImage")}</div>
         )}
       </div>
       <div style={{ padding: 12 }}>
         <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
         <div style={{ fontSize: 12, opacity: .7 }}>
-          {items.length} plantilla(s)
+          {items.length} {t("modal.templatesCount")}
         </div>
         <div style={{ fontSize: 12, opacity: .55, marginTop: 4 }}>
-          Creado: {p.createdAt ? new Date(p.createdAt).toLocaleString() : "—"}
+          {t("modal.createdAt")} {p.createdAt ? new Date(p.createdAt).toLocaleString() : "—"}
         </div>
       </div>
     </button>
@@ -2443,7 +2460,7 @@ const forceFullRebuild = () => {
           className={styles.smallButton2}
           onClick={() => setViewProjectId(null)}
         >
-          ← Volver
+          ← {t("common.back")}
         </button>
         <div style={{ fontSize: 12, opacity: .7 }}>
           {(savedList.filter(r => r.projectId === viewProjectId)).length} elemento(s)
@@ -2474,17 +2491,17 @@ const forceFullRebuild = () => {
     setLabelInput(full.placeName);
   }}
   style={{
-    border: '1px solid rgba(0,0,0,.10)',
+    border: '1px solid var(--stroke)',
     borderRadius: 16,
     overflow: 'hidden',
-    background: '#fff',
-    boxShadow: '0 6px 18px rgba(0,0,0,.06)',
+    background: 'var(--glass-2)',
+    boxShadow: 'var(--shadow-md)',
     cursor: 'pointer'
   }}
 >
   <div style={{
     height: 290,
-    background: '#b4b4b4ff',
+    background: 'var(--bg-0)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2503,7 +2520,7 @@ const forceFullRebuild = () => {
         draggable={false}
       />
     ) : (
-      <div style={{ opacity: .6, fontSize: 13 }}>Sin imagen</div>
+      <div style={{ opacity: .6, fontSize: 13 }}>{t("modal.noImage")}</div>
     )}
   </div>
 
@@ -2538,7 +2555,7 @@ const forceFullRebuild = () => {
           setViewProjectId(null);
         }}
       >
-        Cargar
+        {t("common.load")}
       </button>
 
       {/* Eliminar */}
@@ -2590,7 +2607,7 @@ const forceFullRebuild = () => {
     color: '#ef4444'
   }}
 >
-  Eliminar
+  {t("common.delete")}
 </button>
     </div>
   </div>
@@ -2606,7 +2623,7 @@ const forceFullRebuild = () => {
 
 
 <Modal
-  title="Nombre del proyecto"
+  title={t("modal.projectName")}
   isOpen={isProjectNameModalOpen}
   onClose={() => setProjectNameModalOpen(false)}
   width={520}
@@ -2624,17 +2641,20 @@ const forceFullRebuild = () => {
       value={projectName}
       onChange={(e) => setProjectName(e.target.value)}
       style={{
-        padding: '8px 10px',
-        borderRadius: 6,
-        border: '1px solid #ccc',
+        padding: '11px 14px',
+        borderRadius: 12,
+        border: '1px solid var(--stroke)',
+        background: 'var(--glass)',
+        color: 'var(--text)',
         fontSize: 15,
         width: '100%',
+        outline: 'none',
       }}
     />
 
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
       <button className={styles.smallButton2} onClick={() => setProjectNameModalOpen(false)}>
-        Cancelar
+        {t("common.cancel")}
       </button>
       <button
         className={styles.smallButton}
@@ -2644,39 +2664,39 @@ const forceFullRebuild = () => {
           setSaveAskOpen(true); // pasa al siguiente paso
         }}
       >
-        Continuar
+        {t("common.continue")}
       </button>
     </div>
   </div>
 </Modal>
 
 <Modal
-  title="Guardar plantilla"
+  title={t("modal.saveTemplate")}
   isOpen={isSelectProjectOpen}
   onClose={() => setSelectProjectOpen(false)}
   width={600}
   variant={modalVariant}
 >
-  <div style={{ display: 'grid', gap: 16, color: 'black' }}>
+  <div style={{ display: 'grid', gap: 16, color: 'var(--text)' }}>
     {/* Paso 1: elegir proyecto existente */}
     
     <div>
       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
-        1) Selecciona un proyecto
+        {t("modal.selectProject")}
       </div>
 
       <div
         style={{
           maxHeight: 200,
           overflow: 'auto',
-          border: '1px solid rgba(0,0,0,.1)',
-          borderRadius: 8,
+          border: '1px solid var(--stroke)',
+          borderRadius: 12,
           padding: 8,
-          background: '#fff'
+          background: 'var(--bg-0)'
         }}
       >
         {projects.length === 0 ? (
-          <div style={{ fontSize: 13, opacity: .7 }}>Aún no hay proyectos.</div>
+          <div style={{ fontSize: 13, opacity: .7 }}>{t("modal.noProjects")}</div>
         ) : projects.map(p => (
           <label
             key={p._id}
@@ -2717,19 +2737,22 @@ const forceFullRebuild = () => {
     {/* Paso 2: nombre del lugar */}
     <div style={{ display: 'grid', gap: 8 }}>
       <div style={{ fontSize: 14, fontWeight: 600 }}>
-        2) ¿Dónde va esta placa dentro del proyecto “{selectedProjectName || '—'}”?
+        {t("modal.whereInProject")} “{selectedProjectName || '—'}”?
       </div>
       <input
         type="text"
-        placeholder="Ej: Habitación 101, Sala Principal, Lobby..."
+        placeholder={t("modal.placePlaceholder")}
         value={labelInput}
         onChange={(e) => setLabelInput(e.target.value)}
         style={{
-          padding: '8px 10px',
-          borderRadius: 6,
-          border: '1px solid #ccc',
+          padding: '11px 14px',
+          borderRadius: 12,
+          border: '1px solid var(--stroke)',
+          background: 'var(--glass)',
+          color: 'var(--text)',
           fontSize: 15,
           width: '100%',
+          outline: 'none',
         }}
       />
     </div>
@@ -2747,13 +2770,13 @@ const forceFullRebuild = () => {
         className={styles.smallButton2}
         onClick={() => setSelectProjectOpen(false)}
       >
-        Cancelar
+        {t("common.cancel")}
       </button>
       <button
         className={styles.smallButton}
         onClick={saveTemplateNow}
       >
-        Guardar
+        {t("common.save")}
       </button>
     </div>
   </div>
@@ -2767,7 +2790,7 @@ const forceFullRebuild = () => {
       <div className={styles.layout}>
         <aside className={styles.sidebar}>
 
-<h4 className={styles.sectionTitle}>Tipo de placa</h4>
+<h4 className={styles.sectionTitle}>{t("editor.plateType")}</h4>
 <div className={styles.toggleRow}>
   {/* Sencilla */}
   <button
@@ -2796,39 +2819,38 @@ const forceFullRebuild = () => {
 
 <hr />
 
-      <h4 className={styles.sectionTitle}>Estilo del suiche</h4>
+      <h4 className={styles.sectionTitle}>{t("editor.suicheStyle")}</h4>
 <button
   type="button"
   className={styles.previewButton2}
   onClick={() => setSuicheModalOpen(true)}
-  aria-label="Elegir estilo de suiche"
-  title="Elegir estilo de suiche"
+  aria-label={t("modal.chooseSuiche")}
+  title={t("modal.chooseSuiche")}
 >
-  <div className={styles.thumbStrip}>
+  <span className={styles.suichePreviewInner}>
     {/* Mini preview del suiche actual */}
     <img
       src={selectedSuiche}
-      alt="Suiche seleccionado"
+      alt={t("editor.suiche")}
       className={styles.thumbMini}
       draggable={false}
     />
-    {/* Debajo de la imagen del preview */}
-<span className={styles.previewCaption}>
-  {(Object.values(dataSuiche).find(s => s.image === selectedSuiche)?.label) || 'Suiche'}
-</span>
-
-  </div>
+    {/* Nombre al lado de la miniatura */}
+    <span className={styles.previewCaption}>
+      {(Object.values(dataSuiche).find(s => s.image === selectedSuiche)?.label) || t("editor.suiche")}
+    </span>
+  </span>
   <span className={styles.previewChevron} aria-hidden>›</span>
 </button>
 
     {/* Toolbar de colores: swatches circulares */}
                 <div className={styles.canvasToolbar}>
-                    <span className={styles.toolbarLabel}>Color de fondo</span>
+                    <span className={styles.toolbarLabel}>{t("editor.bgColor")}</span>
                   <div className={styles.toolbarGroup}>
                     <div className={styles.swatchesRow}>
                       {[
-                        { hex: '#FFFFFF', label: 'Blanco' },
-                        { hex: '#000000', label: 'Negro' },
+                        { hex: '#FFFFFF', label: t('editor.white') },
+                        { hex: '#000000', label: t('editor.black') },
                       ].map(({ hex, label }) => {
                         const isActive = selectedColor === hex;
                         return (
@@ -2847,7 +2869,7 @@ const forceFullRebuild = () => {
                     </div>
                   </div>
                 </div>
-<h4 className={styles.sectionTitle}>Plantilla</h4>
+<h4 className={styles.sectionTitle}>{t("editor.template")}</h4>
 <button
   className={styles.previewButton}
   onClick={() => setPlantillasModalOpen(true)}
@@ -2857,9 +2879,10 @@ const forceFullRebuild = () => {
   <div className={styles.thumbStrip}>
     {PREVIEW_PLANTILLAS.map((id) => (
      <img
+  key={id}
   src={getPlantillaPath(id)}
   alt={`Plantilla ${id}`}
-  className={`${styles.thumbMini} ${styles.thumbMiniPlantilla}`}
+  className={`${styles.thumbMini} ${styles.thumbMiniPlantilla} ${esFondoNegro ? styles.thumbMiniPlantillaDark : ''}`}
   draggable={false}
 />
     ))}
@@ -2870,7 +2893,7 @@ const forceFullRebuild = () => {
 
 
    {/* REPLACE: sección Iconos */}
-<h4 className={styles.sectionTitle}>Iconos</h4>
+<h4 className={styles.sectionTitle}>{t("editor.icons")}</h4>
 <button
   className={styles.previewButton}
   onClick={() => setIconsModalOpen(true)}
@@ -2893,16 +2916,25 @@ const forceFullRebuild = () => {
   
 {selectedIconId && (
   <div style={{ marginTop: 12, display: 'flex', gap: 7, flexDirection :"column"}}>
-    <span style={{ fontSize: 15, opacity: 0.8 }}>Texto del icono:</span>
+    <span style={{ fontSize: 15, opacity: 0.8 }}>{t("editor.iconText")}</span>
 <div> <input
   ref={labelInputRef}
   value={labelInput}
   onChange={(e) => setLabelInput(e.target.value)}
   onKeyDown={(e) => { if (e.key === 'Enter') saveLabel(); }}
-  placeholder="Texto del icono…"
-  style={{ padding: '6px 8px', fontSize: 16, width: 130 }} />
+  placeholder={t("editor.iconTextPlaceholder")}
+  style={{
+    padding: '9px 12px',
+    fontSize: 15,
+    width: 150,
+    borderRadius: 10,
+    border: '1px solid var(--stroke)',
+    background: 'var(--glass)',
+    color: 'var(--text)',
+    outline: 'none',
+  }} />
 
-    <button className={styles.smallButton2} onClick={saveLabel}>Guardar</button></div>
+    <button className={styles.smallButton2} onClick={saveLabel}>{t("common.save")}</button></div>
   </div>
 )}
 </div>
@@ -2951,7 +2983,7 @@ const forceFullRebuild = () => {
     width={DESIGN_W}
     height={DESIGN_H}
     scale={{ x: scale, y: scale }}
-    style={{ width: hostSize.w, height: hostSize.h, touchAction: 'none' }} // <- clave en iOS
+    style={{ width: DESIGN_W * scale, height: DESIGN_H * scale, touchAction: 'none' }} // <- clave en iOS
     onPointerDown={handleStagePointerDown}>
 
     <Layer>
@@ -3121,7 +3153,7 @@ const forceFullRebuild = () => {
         </main>
       </div>
 
-     <Modal title="Elegir plantilla" isOpen={isPlantillasModalOpen} onClose={() => setPlantillasModalOpen(false)}  variant={modalVariant}>
+     <Modal title={t("modal.chooseTemplate")} isOpen={isPlantillasModalOpen} onClose={() => setPlantillasModalOpen(false)}  variant={modalVariant}>
 
 
 <div className={styles.plantillaGrid}>
@@ -3163,7 +3195,7 @@ const forceFullRebuild = () => {
 
       
 <Modal
-  title="Elegir iconos"
+  title={t("modal.chooseIcons")}
   isOpen={isIconsModalOpen}
   onClose={() => setIconsModalOpen(false)}
   width={780}
@@ -3243,7 +3275,7 @@ const forceFullRebuild = () => {
 
 
   <Modal
-    title="Elegir estilo de suiche"
+    title={t("modal.chooseSuiche")}
     isOpen={isSuicheModalOpen}
     onClose={() => setSuicheModalOpen(false)}
     width={780}
@@ -3260,31 +3292,31 @@ const forceFullRebuild = () => {
       const isActive = selectedSuiche === value.image;
 
       return (
-        <button
-          key={key}
-          onClick={() => {
-            // Selecciona el suiche
-            setSelectedSuiche(value.image);
+        <div key={key} className={styles.suicheItem}>
+          <button
+            onClick={() => {
+              // Selecciona el suiche
+              setSelectedSuiche(value.image);
 
- 
-            if (plateMode === 'doble') {
-              setSelectedCarcasaDoble(`/assets/carcasas doble/carcasa${i + 1}.png`);
-            }
+              if (plateMode === 'doble') {
+                setSelectedCarcasaDoble(`/assets/carcasas doble/carcasa${i + 1}.png`);
+              }
 
-            setSuicheModalOpen(false);
-          }}
-          className={`${styles.suicheButton} ${extraClass} ${isActive ? styles.active : ''}`}
-          style={!value.cssClass ? { backgroundColor: value.color } : {}}
-          title={value.label ?? key}
-        >
-          {/* Vista del acabado */}
-          {/* Etiqueta */}
-        {value.label && <span className={styles.suicheLabel}>{value.label}</span>}
-        </button>
+              setSuicheModalOpen(false);
+            }}
+            className={`${styles.suicheButton} ${extraClass} ${isActive ? styles.active : ''}`}
+            style={!value.cssClass ? { backgroundColor: value.color } : {}}
+            title={value.label ?? key}
+          />
+          {/* Etiqueta debajo del acabado */}
+          {value.label && <span className={styles.suicheLabel}>{value.label}</span>}
+        </div>
       );
     })}
   </div>
 </Modal>
+
+<LoginModal open={open} onClose={() => setOpen(false)} />
 
     </div>
   );
