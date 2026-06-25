@@ -17,10 +17,48 @@ import Swal from 'sweetalert2';
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 // --- Métrica unificada del icono+etiqueta (usada por editor y exportación) ---
-// Mantener en sincronía con drawIconLabel() de la exportación.
-const ICON_LABEL_GAP = 6;          // separación icono → etiqueta
-const labelFontSize = (size) => Math.max(10, Math.round(size * 0.19));
-const labelLineCount = (text) => (text.trim().length > 10 ? 2 : 1);
+const ICON_LABEL_GAP = 6;     // separación icono → etiqueta
+const LABEL_LINE_HEIGHT = 1.15;
+
+// Ajusta la etiqueta: intenta 1 línea (reduciendo la fuente si hace falta)
+// y, si aún no cabe, la parte en 2 líneas balanceadas por palabras.
+// Devuelve { lines: string[], fontSize }.
+function fitLabel(rawText, size) {
+  const text = (rawText || "").trim();
+  if (text.length < 1) return { lines: [], fontSize: 0 };
+
+  const maxW = size + 56; // ancho "cómodo" para una línea
+  const baseFs = Math.max(10, Math.round(size * 0.19));
+  const minFs = Math.max(8, Math.round(size * 0.14));
+  // ancho aproximado de Montserrat 600 (~0.6 del tamaño de fuente por carácter)
+  const widthAt = (str, fs) => str.length * fs * 0.6;
+
+  // 1) Intentar una sola línea, reduciendo la fuente hasta el mínimo
+  let fs = baseFs;
+  while (fs > minFs && widthAt(text, fs) > maxW) fs -= 1;
+  if (widthAt(text, fs) <= maxW) return { lines: [text], fontSize: fs };
+
+  // 2) Dos líneas balanceadas por palabras, ajustando la fuente para que la
+  //    línea más larga quepa COMPLETA (sin recortes).
+  const words = text.split(/\s+/);
+  if (words.length >= 2) {
+    const half = Math.ceil(words.length / 2);
+    const l1 = words.slice(0, half).join(" ");
+    const l2 = words.slice(half).join(" ");
+    const longest = Math.max(l1.length, l2.length);
+    let f2 = baseFs;
+    while (f2 > minFs && widthAt("x".repeat(longest), f2) > maxW) f2 -= 1;
+    return { lines: [l1, l2], fontSize: f2 };
+  }
+
+  // 3) Palabra única muy larga: al mínimo (se muestra completa aunque sobresalga)
+  return { lines: [text], fontSize: minFs };
+}
+
+// Cuánto se sube el bloque icono+texto cuando hay 2 líneas (para que quepa todo)
+function labelYShift(fit) {
+  return ((Math.max(1, fit.lines.length) - 1) * fit.fontSize * LABEL_LINE_HEIGHT) / 2;
+}
 
 const IconWithLabel = ({
   x, y, size, src, label, isWhite, onSelect
@@ -31,36 +69,36 @@ const IconWithLabel = ({
   const labelText = label?.trim() || "";
   const hasLabel = labelText.length > 1;
 
-  const fontSize = labelFontSize(size);
-  const lineHeight = 1.15;
-  const labelHeight = labelLineCount(labelText) * (fontSize * lineHeight);
-
-  // El texto se centra horizontalmente sobre el icono usando un bloque
-  // más ancho que el icono (margen de 30) desplazado -15 a la izquierda.
-  const TEXT_PAD = 30;
+  const fit = fitLabel(labelText, size);
+  const labelHeight = Math.max(1, fit.lines.length) * fit.fontSize * LABEL_LINE_HEIGHT;
+  // Si hay 2 líneas, subimos un poco el bloque para que la etiqueta quepa entera.
+  const yShift = labelYShift(fit);
+  // Caja de texto amplia y centrada en el icono: garantiza que nunca se recorte.
+  const LABEL_BOX_W = size + 140;
 
   return (
     <Group x={x} y={y} listening onClick={onSelect} onTap={onSelect}>
-      {/* Icono: centrado en la parte superior del grupo */}
-      <KonvaImage image={iconImg} width={size} height={size} y={0} />
+      {/* Icono: arriba; se sube un poco si la etiqueta ocupa 2 líneas */}
+      <KonvaImage image={iconImg} width={size} height={size} y={-yShift} />
 
-      {/* Etiqueta: centrada justo debajo del icono */}
+      {/* Etiqueta: justo debajo del icono. Caja MUY ancha (centrada en el icono)
+          para que el texto nunca se recorte; el salto de línea ya viene en fit.lines. */}
       {hasLabel && (
         <Text
-          x={-TEXT_PAD / 2}
-          y={size + ICON_LABEL_GAP}
-          width={size + TEXT_PAD}
+          x={(size - LABEL_BOX_W) / 2}
+          y={size + ICON_LABEL_GAP - yShift}
+          width={LABEL_BOX_W}
           height={labelHeight}
-          text={labelText}
+          text={fit.lines.join("\n")}
           fontFamily="Montserrat"
-          fontSize={fontSize}
+          fontSize={fit.fontSize}
           fontStyle="600"
           fill={isWhite ? "#ffffff" : "#1e1e1e"}
           align="center"
           verticalAlign="top"
           wrap="word"
           ellipsis={false}
-          lineHeight={lineHeight}
+          lineHeight={LABEL_LINE_HEIGHT}
           listening={false}
         />
       )}
@@ -381,8 +419,10 @@ const DESIGN_H = 900;
 
 // Región visible de la placa (la carcasa es ~785×785, centrada en el diseño).
 // Encuadramos esta zona para que la placa ocupe el máximo del lienzo.
-// Recuadro más ajustado = placa más grande (mismo centro 592.5, 432.5).
-const PLATE_VIEW = { x: 217, y: 57, w: 751, h: 751 };
+// Encuadre = la placa COMPLETA con sus bordes redondeados, al máximo tamaño
+// sin recortar (la carcasa ocupa 200–985 / 40–825 ≈ 785×785, centrada).
+// Margen mínimo para que no se corten las esquinas.
+const PLATE_VIEW = { x: 195, y: 35, w: 795, h: 795 };
 
 
 const API_BASE = import.meta.env?.VITE_API_BASE || "https://custom.disevenapp.com/api";
@@ -485,6 +525,10 @@ const DesignerCanvas = () => {
   useEffect(() => {
     if (ready && !user) loginAsGuest();
   }, [ready, user, loginAsGuest]);
+
+  // Función ESTABLE para cerrar el login (evita que los efectos del LoginModal
+  // se re-ejecuten en cada render y provoquen parpadeo/bucle).
+  const closeLogin = useCallback(() => setOpen(false), []);
 
   // Si el modal de login está abierto y el usuario inicia sesión de verdad
   // (deja de ser invitado), lo cerramos.
@@ -1719,57 +1763,27 @@ if (plateMode === "sencilla") {
     await new Promise((resolve) => (img.onload = resolve));
 
     const size = icon.size;
-    const label = (icon.label || "").trim();
-    const hasLabel = label.length > 0;
-    const multiline = label.length > 10;
-    const lineCount = multiline ? 2 : 1;
-
-    const fontSize = Math.round(size * 0.19);
-    const labelPadding = 4;
-    const labelHeight = lineCount * (fontSize * 1.15);
-
-    const textYOffset = size < 70 ? size * 0.85 : size + labelPadding;
-    const iconYOffset = hasLabel
-      ? (size < 100 ? -5 : 0)
-      : -(size / 3.7) + labelHeight / 2;
+    const fit = fitLabel(icon.label, size);
+    const yShift = labelYShift(fit);
 
     const drawX = (icon.x - rect.x) * pixelRatio;
-    const drawY = (icon.y - rect.y + iconYOffset) * pixelRatio;
+    const drawY = (icon.y - rect.y - yShift) * pixelRatio;
 
     // Ícono
-    ctxFull.drawImage(
-      img,
-      drawX,
-      drawY,
-      size * pixelRatio,
-      size * pixelRatio
-    );
+    ctxFull.drawImage(img, drawX, drawY, size * pixelRatio, size * pixelRatio);
 
-    // Texto
-    if (hasLabel) {
-      ctxFull.font = `600 ${Math.round(fontSize * pixelRatio)}px Montserrat`;
+    // Texto (mismo modelo que el editor: 1 o 2 líneas balanceadas, completo)
+    if (fit.lines.length) {
+      ctxFull.font = `600 ${Math.round(fit.fontSize * pixelRatio)}px Montserrat`;
       ctxFull.fillStyle = esFondoNegro ? "#ffffff" : "#1e1e1e";
       ctxFull.textAlign = "center";
-      ctxFull.textBaseline = "middle";
+      ctxFull.textBaseline = "top";
 
       const centerX = (icon.x - rect.x + size / 2) * pixelRatio;
+      const topY = (icon.y - rect.y + size + ICON_LABEL_GAP - yShift) * pixelRatio;
+      const lh = fit.fontSize * LABEL_LINE_HEIGHT * pixelRatio;
 
-      if (!multiline) {
-        const cy =
-          (icon.y - rect.y + textYOffset + labelHeight / 2) * pixelRatio;
-        ctxFull.fillText(label, centerX, cy);
-      } else {
-        const words = label.split(" ");
-        const first = words.slice(0, Math.ceil(words.length / 2)).join(" ");
-        const second = words.slice(Math.ceil(words.length / 2)).join(" ");
-
-        const lh = fontSize * pixelRatio * 1.1;
-        const baseY =
-          (icon.y - rect.y + textYOffset + labelHeight / 1.5) * pixelRatio;
-
-        ctxFull.fillText(first, centerX, baseY - lh / 2);
-        ctxFull.fillText(second, centerX, baseY + lh / 2);
-      }
+      fit.lines.forEach((ln, li) => ctxFull.fillText(ln, centerX, topY + li * lh));
     }
   }
 
@@ -1869,8 +1883,11 @@ async function renderSnapshotToPNG(snapshot) {
 
     const img = await loadImage(`/assets/ICONOS NEGROS/ICONOS BOTNOERAS-${icon.num}.png`);
 
+    const fit = fitLabel(icon.label, size);
+    const yShift = labelYShift(fit);
+
     const drawX = (x - rect.x) * pixelRatio;
-    const drawY = (y - rect.y) * pixelRatio;
+    const drawY = (y - rect.y - yShift) * pixelRatio;
 
     // === PINTAR ÍCONO ===
     ctxFull.drawImage(
@@ -1881,35 +1898,18 @@ async function renderSnapshotToPNG(snapshot) {
       size * pixelRatio
     );
 
-    // === PINTAR TEXTO EXACTO ===
-    const label = (icon.label || "").trim();
-    if (label.length > 0) {
-      const multiline = label.length > 10;
-      const fontSize = Math.round(size * 0.19);
-      const labelPadding = 4;
-
-      const lh = fontSize * pixelRatio * 1.1;
-
-      const baseY =
-        (y - rect.y + size + labelPadding + fontSize) * pixelRatio;
-
-      ctxFull.font = `600 ${Math.round(fontSize * pixelRatio)}px Montserrat`;
+    // === PINTAR TEXTO (mismo modelo que el editor: completo, sin recortar) ===
+    if (fit.lines.length) {
+      ctxFull.font = `600 ${Math.round(fit.fontSize * pixelRatio)}px Montserrat`;
       ctxFull.fillStyle = "#1e1e1e";
       ctxFull.textAlign = "center";
-      ctxFull.textBaseline = "middle";
+      ctxFull.textBaseline = "top";
 
       const centerX = (x - rect.x + size / 2) * pixelRatio;
+      const topY = (y - rect.y + size + ICON_LABEL_GAP - yShift) * pixelRatio;
+      const lh = fit.fontSize * LABEL_LINE_HEIGHT * pixelRatio;
 
-      if (!multiline) {
-        ctxFull.fillText(label, centerX, baseY);
-      } else {
-        const words = label.split(" ");
-        const first = words.slice(0, Math.ceil(words.length / 2)).join(" ");
-        const second = words.slice(Math.ceil(words.length / 2)).join(" ");
-
-        ctxFull.fillText(first, centerX, baseY - lh / 2);
-        ctxFull.fillText(second, centerX, baseY + lh / 2);
-      }
+      fit.lines.forEach((ln, li) => ctxFull.fillText(ln, centerX, topY + li * lh));
     }
   }
 
@@ -3324,7 +3324,7 @@ const forceFullRebuild = () => {
   </div>
 </Modal>
 
-<LoginModal open={open} onClose={() => setOpen(false)} />
+<LoginModal open={open} onClose={closeLogin} />
 
     </div>
   );

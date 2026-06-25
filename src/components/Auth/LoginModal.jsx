@@ -20,12 +20,14 @@ export default function LoginModal({ open, onClose }) {
   const initialRef = useRef(null);
 
   useEffect(() => {
-    // Solo reaccionamos a un inicio de sesión real (no al invitado automático)
+    // Solo reaccionamos a un inicio de sesión real (no al invitado automático).
+    // Dependemos SOLO de `user` para no re-ejecutar en cada render.
     if (user && !user.guest) {
       onClose?.();
       nav("/designer"); // sin replace para poder volver al Home
     }
-  }, [user, onClose, nav]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   useEffect(() => {
     if (open) document.body.style.overflow = "hidden";
@@ -35,12 +37,16 @@ export default function LoginModal({ open, onClose }) {
   useEffect(() => {
     if (!open) return;
     // foco inicial
-    setTimeout(() => initialRef.current?.focus(), 50);
+    const tid = setTimeout(() => initialRef.current?.focus(), 50);
     // cerrar con ESC
     const onEsc = (e) => { if (e.key === "Escape") onClose?.(); };
     window.addEventListener("keydown", onEsc);
-    return () => window.removeEventListener("keydown", onEsc);
-  }, [open, onClose]);
+    return () => {
+      clearTimeout(tid);
+      window.removeEventListener("keydown", onEsc);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 

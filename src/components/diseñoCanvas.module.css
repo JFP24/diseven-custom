@@ -33,7 +33,7 @@
 /* ---------- Layout principal ---------- */
 .layout {
   display: grid;
-  grid-template-columns: minmax(252px, 296px) 1fr;
+  grid-template-columns: minmax(236px, 274px) 1fr;
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
@@ -289,10 +289,10 @@
 .mainArea {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 8px 16px 16px;
+  padding: 6px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .workbench {
   display: flex;
@@ -313,7 +313,7 @@
   min-height: 0;
   min-width: 0;
   border-radius: var(--r-xl);
-  padding: 10px;
+  padding: 8px;
   box-shadow: var(--shadow-lg), var(--shadow-inset);
   background:
     radial-gradient(120% 90% at 50% 0%, rgba(15, 162, 218, 0.12), transparent 62%),
@@ -664,7 +664,7 @@
 .canvasCard { animation-delay: 140ms; }
 
 @media (min-width: 1000px) and (max-width: 1899.98px) {
-  .mainArea { padding: 22px; }
+  .mainArea { padding: 10px 14px 14px; }
 }
 
 /* ---------- Responsive: tablet y móvil ---------- */
@@ -680,7 +680,7 @@
   }
   .mainArea {
     order: 1;
-    padding: 12px;
+    padding: 6px 3px 6px;
     overflow: visible;
   }
   .sidebar {
@@ -693,12 +693,13 @@
   }
   .workbench { display: flex; }
   .canvasPane { min-height: 0; }
-  /* Lienzo cuadrado: la placa (carcasa ~cuadrada) lo ocupa casi por completo */
+  /* Lienzo cuadrado a casi todo el ancho: la placa se ve más grande en móvil */
   .canvasCard {
     flex: 0 0 auto;
     width: 100%;
     height: auto;
     aspect-ratio: 1 / 1;
+    padding: 5px;
   }
 
   /* Barra de acciones: en flujo, centrada, con salto de línea */
