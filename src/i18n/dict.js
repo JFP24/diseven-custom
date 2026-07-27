@@ -14,7 +14,7 @@ export const dict = {
     "common.rename": "Renombrar",
     "common.login": "Iniciar sesión",
     "common.logout": "Cerrar sesión",
-    "common.exportZip": "Exportar ZIP",
+    "common.exportZip": "Exportar imagen",
     "common.exportPng": "Exportar PNG",
 
     // Home
@@ -111,7 +111,7 @@ export const dict = {
     "common.rename": "Rename",
     "common.login": "Sign in",
     "common.logout": "Sign out",
-    "common.exportZip": "Export ZIP",
+    "common.exportZip": "Export image",
     "common.exportPng": "Export PNG",
 
     // Home

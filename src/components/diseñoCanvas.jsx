@@ -1,4 +1,4 @@
-import { Stage, Layer, Image as KonvaImage, Rect, Group, Text } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Rect, Group, Text, Line, Path } from 'react-konva';
 import useImage from 'use-image';
 import React ,{ useEffect, useRef, useState, useCallback } from 'react';
 import styles from './diseñoCanvas.module.css';
@@ -11,7 +11,7 @@ import PrefsToggle from "./PrefsToggle.jsx";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { usePrefs } from "../i18n/PrefsContext.jsx";
-import { LogIn } from "lucide-react";
+import { LogIn, Eye } from "lucide-react";
 import Swal from 'sweetalert2';
 
 import JSZip from "jszip";
@@ -23,13 +23,13 @@ const LABEL_LINE_HEIGHT = 1.15;
 // Ajusta la etiqueta: intenta 1 línea (reduciendo la fuente si hace falta)
 // y, si aún no cabe, la parte en 2 líneas balanceadas por palabras.
 // Devuelve { lines: string[], fontSize }.
-function fitLabel(rawText, size) {
+function fitLabel(rawText, size, baseRatio = 0.19) {
   const text = (rawText || "").trim();
   if (text.length < 1) return { lines: [], fontSize: 0 };
 
   const maxW = size + 56; // ancho "cómodo" para una línea
-  const baseFs = Math.max(10, Math.round(size * 0.19));
-  const minFs = Math.max(8, Math.round(size * 0.14));
+  const baseFs = Math.max(10, Math.round(size * baseRatio));
+  const minFs = Math.max(8, Math.round(size * (baseRatio * 0.74)));
   // ancho aproximado de Montserrat 600 (~0.6 del tamaño de fuente por carácter)
   const widthAt = (str, fs) => str.length * fs * 0.6;
 
@@ -58,6 +58,326 @@ function fitLabel(rawText, size) {
 // Cuánto se sube el bloque icono+texto cuando hay 2 líneas (para que quepa todo)
 function labelYShift(fit) {
   return ((Math.max(1, fit.lines.length) - 1) * fit.fontSize * LABEL_LINE_HEIGHT) / 2;
+}
+
+// Etiqueta para exportación: MAYÚSCULAS; si tiene 2+ palabras → 2 líneas
+// balanceadas (como la referencia). 1 palabra → 1 línea.
+function exportLabelLines(rawText, upper = true) {
+  let txt = (rawText || "").trim();
+  if (upper) txt = txt.toUpperCase();
+  const words = txt.split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return words;
+  const half = Math.ceil(words.length / 2);
+  return [words.slice(0, half).join(" "), words.slice(half).join(" ")];
+}
+
+// --- Escribir la medida física (DPI) en un PNG mediante el chunk pHYs ---
+const _CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function _crc32(bytes, start, end) {
+  let c = 0xffffffff;
+  for (let i = start; i < end; i++) c = _CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+// Inserta un chunk pHYs (pixeles por metro) tras IHDR. ppm = px por metro.
+function addPngPhys(dataURL, ppmX, ppmY) {
+  try {
+    const bin = atob(dataURL.split(",")[1]);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+    const chunk = new Uint8Array(21); // 4 len + 4 type + 9 data + 4 crc
+    const dv = new DataView(chunk.buffer);
+    dv.setUint32(0, 9);
+    chunk[4] = 0x70; chunk[5] = 0x48; chunk[6] = 0x59; chunk[7] = 0x73; // "pHYs"
+    dv.setUint32(8, ppmX >>> 0);
+    dv.setUint32(12, ppmY >>> 0);
+    chunk[16] = 1; // unidad = metro
+    dv.setUint32(17, _crc32(chunk, 4, 17));
+
+    // Firma PNG (8) + IHDR (25) = 33 → insertamos aquí
+    const out = new Uint8Array(bytes.length + 21);
+    out.set(bytes.subarray(0, 33), 0);
+    out.set(chunk, 33);
+    out.set(bytes.subarray(33), 33 + 21);
+
+    let s = "";
+    for (let i = 0; i < out.length; i++) s += String.fromCharCode(out[i]);
+    return "data:image/png;base64," + btoa(s);
+  } catch {
+    return dataURL;
+  }
+}
+
+// Un paso morfológico sobre un canvas: dilata (une copias) o erosiona
+// (intersección), desplazando el dibujo r px en 8 direcciones.
+function morphStep(cv, dilate, r) {
+  const w = cv.width, h = cv.height;
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  const t = out.getContext("2d");
+  t.drawImage(cv, 0, 0);
+  // 16 direcciones → morfología más circular = bordes más lisos (sin ondulación)
+  const N = 16;
+  t.globalCompositeOperation = dilate ? "source-over" : "destination-in";
+  for (let a = 0; a < N; a++) {
+    const ang = (2 * Math.PI * a) / N;
+    t.drawImage(cv, r * Math.cos(ang), r * Math.sin(ang));
+  }
+  t.globalCompositeOperation = "source-over";
+  return out;
+}
+
+// Mide el grosor de trazo (px) de un canvas: MODA de longitudes de tramo (robusto a rellenos).
+function measureStrokeCanvas(cv) {
+  const w = cv.width, h = cv.height;
+  let data;
+  try { data = cv.getContext("2d").getImageData(0, 0, w, h).data; } catch { return 0; }
+  const op = (x, y) => data[(y * w + x) * 4 + 3] > 128;
+  const hist = new Array(Math.max(w, h) + 2).fill(0);
+  for (let y = 0; y < h; y++) { let r = 0; for (let x = 0; x < w; x++) { if (op(x, y)) r++; else { if (r) hist[r]++; r = 0; } } if (r) hist[r]++; }
+  for (let x = 0; x < w; x++) { let r = 0; for (let y = 0; y < h; y++) { if (op(x, y)) r++; else { if (r) hist[r]++; r = 0; } } if (r) hist[r]++; }
+  let mode = 0, best = 0;
+  for (let len = 1; len < hist.length; len++) if (hist[len] > best) { best = hist[len]; mode = len; }
+  return mode;
+}
+
+// Recorta un canvas a su contenido (alpha > 20). Devuelve { canvas, wPx, hPx }.
+function trimCanvas(cv) {
+  const w = cv.width, h = cv.height;
+  let data;
+  try { data = cv.getContext("2d").getImageData(0, 0, w, h).data; } catch { return { canvas: cv, wPx: w, hPx: h }; }
+  let ax = w, ay = h, bx = -1, by = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (data[(y * w + x) * 4 + 3] > 20) { if (x < ax) ax = x; if (x > bx) bx = x; if (y < ay) ay = y; if (y > by) by = y; }
+  }
+  if (bx < ax) return { canvas: cv, wPx: w, hPx: h };
+  const fw = bx - ax + 1, fh = by - ay + 1;
+  const out = document.createElement("canvas");
+  out.width = fw; out.height = fh;
+  out.getContext("2d").drawImage(cv, ax, ay, fw, fh, 0, 0, fw, fh);
+  return { canvas: out, wPx: fw, hPx: fh };
+}
+
+// Recorta al contenido y escala para que la dimensión mayor mida boxPx (tamaño
+// FIJO), centrado con margen. Mantiene estable el tamaño del icono aunque la
+// erosión/dilatación cambien el contorno.
+function fitContentToBox(cv, boxPx, pad) {
+  const t = trimCanvas(cv);
+  const md = Math.max(t.wPx, t.hPx) || 1;
+  const sc = boxPx / md;
+  const fw = Math.max(1, Math.round(t.wPx * sc));
+  const fh = Math.max(1, Math.round(t.hPx * sc));
+  const out = document.createElement("canvas");
+  out.width = fw + pad * 2; out.height = fh + pad * 2;
+  const o = out.getContext("2d");
+  o.imageSmoothingEnabled = true;
+  o.imageSmoothingQuality = "high";
+  o.drawImage(t.canvas, 0, 0, t.wPx, t.hPx, pad, pad, fw, fh);
+  return out;
+}
+
+// Afila los bordes (trazo nítido como las líneas vectoriales) y fuerza negro
+// puro. Rampa centrada en 128 → conserva el ancho de trazo medido.
+function crispenCanvas(cv, lo = 98, hi = 158) {
+  const w = cv.width, h = cv.height;
+  const ctx = cv.getContext("2d");
+  let d;
+  try { d = ctx.getImageData(0, 0, w, h); } catch { return cv; }
+  const a = d.data, span = hi - lo;
+  for (let i = 0; i < a.length; i += 4) {
+    const al = a[i + 3];
+    a[i + 3] = al <= lo ? 0 : al >= hi ? 255 : Math.round(((al - lo) / span) * 255);
+    if (a[i + 3] > 0) { a[i] = 0; a[i + 1] = 0; a[i + 2] = 0; }
+  }
+  ctx.putImageData(d, 0, 0);
+  return cv;
+}
+
+// Prepara un icono para exportar: escala el dibujo para que su dimensión mayor
+// mida boxPx, AJUSTA el grosor a targetStrokePx midiendo el resultado real y
+// corrigiendo, FIJA el tamaño exacto al final (para que no se encoja al adelgazar)
+// y AFILA los bordes. Devuelve { canvas, wPx, hPx }.
+function prepareIconForExport(img, boxPx, targetStrokePx) {
+  const w = img.naturalWidth || 195;
+  const h = img.naturalHeight || 195;
+
+  // bbox del contenido (alpha > 20)
+  const src = document.createElement("canvas");
+  src.width = w; src.height = h;
+  const sctx = src.getContext("2d");
+  sctx.drawImage(img, 0, 0, w, h);
+  let minx = w, miny = h, maxx = 0, maxy = 0;
+  try {
+    const d = sctx.getImageData(0, 0, w, h).data;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (d[(y * w + x) * 4 + 3] > 20) {
+        if (x < minx) minx = x; if (x > maxx) maxx = x;
+        if (y < miny) miny = y; if (y > maxy) maxy = y;
+      }
+    }
+  } catch { minx = 0; miny = 0; maxx = w - 1; maxy = h - 1; }
+  if (maxx < minx) { minx = 0; miny = 0; maxx = w - 1; maxy = h - 1; }
+  const cw = maxx - minx + 1, ch = maxy - miny + 1;
+  const scale = boxPx / Math.max(cw, ch);
+  const dwPx = Math.max(1, Math.round(cw * scale));
+  const dhPx = Math.max(1, Math.round(ch * scale));
+
+  // canvas de trabajo (con margen para la dilatación)
+  const pad = Math.max(4, Math.round(boxPx * 0.12));
+  let cv = document.createElement("canvas");
+  cv.width = dwPx + pad * 2; cv.height = dhPx + pad * 2;
+  const octx = cv.getContext("2d");
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = "high";
+  octx.drawImage(img, minx, miny, cw, ch, pad, pad, dwPx, dhPx);
+
+  // retroalimentación: medir el grosor real y corregirlo hasta targetStrokePx
+  for (let i = 0; i < 14; i++) {
+    const s = measureStrokeCanvas(cv);
+    if (!s) break;
+    const delta = targetStrokePx - s;
+    if (Math.abs(delta) <= 0.5) break;
+    cv = morphStep(cv, delta > 0, Math.min(1.1, Math.abs(delta) / 2));
+  }
+
+  cv = fitContentToBox(cv, boxPx, pad); // fija el tamaño exacto (la erosión lo encoge)
+  crispenCanvas(cv);                    // bordes nítidos + negro puro
+  return trimCanvas(cv);
+}
+
+// Renderiza un bloque de texto (1..n líneas centradas) en PX REALES y ajusta el
+// grosor del trazo de las letras al MISMO estándar que las líneas (0.36 mm).
+// El engrosado se hace con strokeText siguiendo el CONTORNO VECTORIAL de la letra
+// (unión en punta / miter) → las letras quedan RECTAS, sin redondear las esquinas.
+// Devuelve { canvas, wPx, hPx, pad }. `pad` = margen superior hasta la 1.ª línea.
+function renderLabelBlock(lines, fsPx, styleStr, lhPx, targetStrokePx, family = 'Montserrat') {
+  const fontSpec = `${styleStr} ${fsPx}px "${family}"`;
+  const pad = Math.ceil(fsPx * 0.7); // margen para engrosar sin recortar
+  const meas = document.createElement("canvas").getContext("2d");
+  meas.font = fontSpec;
+  let maxLineW = 1;
+  for (const ln of lines) maxLineW = Math.max(maxLineW, meas.measureText(ln).width);
+  const wPx = Math.ceil(maxLineW) + pad * 2;
+  const hPx = Math.ceil(lines.length * lhPx) + pad * 2;
+
+  const cv = document.createElement("canvas");
+  cv.width = wPx; cv.height = hPx;
+  const c = cv.getContext("2d");
+  c.imageSmoothingEnabled = true;
+  c.imageSmoothingQuality = "high";
+  c.textAlign = "center";
+  c.textBaseline = "top";
+  c.font = fontSpec;
+  c.lineJoin = "miter";   // esquinas en punta (rectas, no redondeadas)
+  c.miterLimit = 3;
+  c.lineCap = "butt";
+
+  // Dibuja el bloque con un grosor de contorno dado (strokeText engrosa recto).
+  const draw = (lw) => {
+    c.clearRect(0, 0, wPx, hPx);
+    c.fillStyle = "#000";
+    c.strokeStyle = "#000";
+    c.lineWidth = lw;
+    lines.forEach((ln, li) => {
+      const y = pad + li * lhPx;
+      c.fillText(ln, wPx / 2, y);
+      if (lw > 0) c.strokeText(ln, wPx / 2, y);
+    });
+  };
+
+  // Retroalimentación: medir el grosor real y ajustar el ancho de contorno hasta
+  // llegar a targetStrokePx (strokeText añade ≈ lw al ancho del trazo relleno).
+  let lw = 0;
+  draw(0);
+  for (let i = 0; i < 8; i++) {
+    const s = measureStrokeCanvas(cv);
+    if (!s) break;
+    const delta = targetStrokePx - s;
+    if (Math.abs(delta) <= 0.5) break;
+    lw = Math.max(0, lw + delta);
+    draw(lw);
+  }
+  crispenCanvas(cv); // bordes nítidos + negro puro
+  return { canvas: cv, wPx, hPx, pad };
+}
+
+// Prepara un icono SVG para exportar con GROSOR UNIFORME (0.35 mm) sin importar el
+// tamaño de la casilla. Como los SVG son de relleno, el grosor escala con el tamaño;
+// para igualarlo: (1) rasterizamos el CONTENIDO del SVG a ALTA resolución (vector →
+// nítido, no pixelado), (2) ajustamos el grosor real al objetivo con morfología a
+// esa alta resolución, (3) al reducir de escala al dibujar, las micro-ondas de la
+// morfología se promedian → bordes lisos. Devuelve { canvas, wPx, hPx }.
+function prepareSvgIconForExport(img, boxPx, targetStrokePx) {
+  // 1) bbox del contenido: rasterizamos el SVG a una resolución de sondeo
+  const probe = 340;
+  const pc = document.createElement("canvas");
+  pc.width = probe; pc.height = probe;
+  const pctx = pc.getContext("2d");
+  pctx.imageSmoothingEnabled = true;
+  pctx.imageSmoothingQuality = "high";
+  pctx.drawImage(img, 0, 0, probe, probe);
+  let minx = probe, miny = probe, maxx = 0, maxy = 0;
+  try {
+    const d = pctx.getImageData(0, 0, probe, probe).data;
+    for (let y = 0; y < probe; y++) for (let x = 0; x < probe; x++) {
+      if (d[(y * probe + x) * 4 + 3] > 20) {
+        if (x < minx) minx = x; if (x > maxx) maxx = x;
+        if (y < miny) miny = y; if (y > maxy) maxy = y;
+      }
+    }
+  } catch { minx = 0; miny = 0; maxx = probe - 1; maxy = probe - 1; }
+  if (maxx < minx) { minx = 0; miny = 0; maxx = probe - 1; maxy = probe - 1; }
+
+  // bbox en coordenadas del SVG (tamaño natural del <img>)
+  const nw = img.naturalWidth || probe, nh = img.naturalHeight || probe;
+  const sx = (minx / probe) * nw, sy = (miny / probe) * nh;
+  const sw = ((maxx - minx + 1) / probe) * nw, sh = ((maxy - miny + 1) / probe) * nh;
+
+  // 2) dibujar el CONTENIDO a alta resolución llenando boxPx (el navegador rasteriza
+  //    el SVG al tamaño destino → nítido, sin ampliar un bitmap de baja resolución)
+  const cw = maxx - minx + 1, ch = maxy - miny + 1;
+  const scl = boxPx / Math.max(cw, ch);
+  const dwPx = Math.max(1, Math.round(cw * scl));
+  const dhPx = Math.max(1, Math.round(ch * scl));
+  const pad = Math.max(4, Math.round(boxPx * 0.14));
+  let cv = document.createElement("canvas");
+  cv.width = dwPx + pad * 2; cv.height = dhPx + pad * 2;
+  const octx = cv.getContext("2d");
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = "high";
+  octx.drawImage(img, sx, sy, sw, sh, pad, pad, dwPx, dhPx);
+
+  // 3) retroalimentación: medir el grosor real y llevarlo a targetStrokePx (0.35 mm)
+  for (let i = 0; i < 14; i++) {
+    const s = measureStrokeCanvas(cv);
+    if (!s) break;
+    const delta = targetStrokePx - s;
+    if (Math.abs(delta) <= 0.5) break;
+    cv = morphStep(cv, delta > 0, Math.min(1.1, Math.abs(delta) / 2));
+  }
+  cv = fitContentToBox(cv, boxPx, pad); // fija el tamaño exacto (la morfología lo mueve)
+  crispenCanvas(cv);                    // bordes nítidos + negro puro
+  return trimCanvas(cv);
+}
+
+// Traza un rectángulo redondeado en un contexto 2D (sin pintar; luego .stroke()/.fill())
+function ctxRoundRect(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
 }
 
 const IconWithLabel = ({
@@ -103,6 +423,163 @@ const IconWithLabel = ({
         />
       )}
     </Group>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vista "como se exporta" en el EDITOR (WYSIWYG). Dibuja el icono con el MISMO
+// estilo de la ficha exportada: negro/estándar (15/9 mm por tipo de casilla),
+// content-fit, layout PAREJO y texto en MAYÚSCULAS. Es solo visual; la lógica del
+// export (renderPlateExport) NO se toca. Se puede desactivar con EDITOR_EXPORT_STYLE.
+const EDITOR_EXPORT_STYLE = true;
+const ED_U_PER_MM = 215 / 34.469; // unidades de diseño por mm (igual que el export)
+const ED_ICON_BIG_MM = 15, ED_ICON_SMALL_MM = 9, ED_LARGE_CELL_MM = 25;
+const ED_FONT_SMALL_MM = 1.87, ED_LABEL_W_RATIO = 0.085;
+
+const ExportStyleIcon = ({ icon, slot, plateW, isWhite, onSelect, fontOpt }) => {
+  const fo = fontOpt || FONT_OPTIONS[0];
+  const [img] = useImage(iconSvgPath(icon.num, isWhite));
+  const [bbox, setBbox] = useState(null);
+
+  useEffect(() => {
+    if (!img) return;
+    const nw = img.naturalWidth || 191, nh = img.naturalHeight || 191;
+    const probe = 200;
+    const c = document.createElement("canvas");
+    c.width = probe; c.height = probe;
+    const cx = c.getContext("2d");
+    cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = "high";
+    cx.drawImage(img, 0, 0, probe, probe);
+    let minx = probe, miny = probe, maxx = 0, maxy = 0;
+    try {
+      const d = cx.getImageData(0, 0, probe, probe).data;
+      for (let y = 0; y < probe; y++) for (let x = 0; x < probe; x++) {
+        if (d[(y * probe + x) * 4 + 3] > 20) {
+          if (x < minx) minx = x; if (x > maxx) maxx = x;
+          if (y < miny) miny = y; if (y > maxy) maxy = y;
+        }
+      }
+    } catch { setBbox({ x: 0, y: 0, w: nw, h: nh }); return; }
+    if (maxx < minx) { setBbox({ x: 0, y: 0, w: nw, h: nh }); return; }
+    setBbox({
+      x: (minx / probe) * nw, y: (miny / probe) * nh,
+      w: ((maxx - minx + 1) / probe) * nw, h: ((maxy - miny + 1) / probe) * nh,
+    });
+  }, [img]);
+
+  if (!img || !bbox || !icon?.num || !slot) return null;
+
+  const U = ED_U_PER_MM;
+  const cellHeightMm = slot.h / U;
+  const isLarge = cellHeightMm >= ED_LARGE_CELL_MM && slot.w >= plateW * 0.7;
+  const boxDesign = (isLarge ? ED_ICON_BIG_MM : ED_ICON_SMALL_MM) * U;
+
+  // content-fit: dimensión mayor = boxDesign (conserva proporción del contenido)
+  const scl = boxDesign / Math.max(bbox.w, bbox.h);
+  const iconW = bbox.w * scl, iconH = bbox.h * scl;
+
+  // etiqueta (mayúsculas salvo fuentes script) — mismo modelo del export
+  const lines = exportLabelLines(icon.label, fo.upper !== false);
+  const isSmall = !isLarge;
+  const fscale = fo.scale || 1; // scripts se ven más pequeñas → se agrandan
+  const maxW = slot.w * 0.94;
+  const longest = lines.length ? Math.max(...lines.map((l) => l.length)) : 0;
+  let fs = (isSmall ? ED_FONT_SMALL_MM * U : slot.w * ED_LABEL_W_RATIO) * fscale;
+  const minFs = slot.w * 0.075;
+  while (fs > minFs && longest * fs * 0.72 > maxW) fs -= 0.5;
+  const lh = fs * LABEL_LINE_HEIGHT;
+  const stdFs = (isSmall ? ED_FONT_SMALL_MM * U : slot.w * ED_LABEL_W_RATIO) * fscale;
+  const stdLh = stdFs * LABEL_LINE_HEIGHT;
+  const gap = boxDesign * (isLarge ? 0.22 : 0.13);
+
+  const cx = slot.x + slot.w / 2;
+  const refBlockH = boxDesign + (lines.length ? gap + stdLh : 0);
+  const top = slot.y + (slot.h - refBlockH) / 2;
+  const iconBandCenterY = top + boxDesign / 2;
+  const textTop = top + boxDesign + gap;
+
+  return (
+    <Group listening onClick={onSelect} onTap={onSelect}>
+      <KonvaImage
+        image={img}
+        crop={{ x: bbox.x, y: bbox.y, width: bbox.w, height: bbox.h }}
+        x={cx - iconW / 2}
+        y={iconBandCenterY - iconH / 2}
+        width={iconW}
+        height={iconH}
+      />
+      {lines.length > 0 && (
+        <Text
+          x={slot.x}
+          y={textTop}
+          width={slot.w}
+          text={lines.join("\n")}
+          fontFamily={fo.family}
+          fontSize={fs}
+          fontStyle={fontStyleStr(fo)}
+          fill={isWhite ? "#ffffff" : "#000000"}
+          align="center"
+          verticalAlign="top"
+          lineHeight={LABEL_LINE_HEIGHT}
+          listening={false}
+        />
+      )}
+    </Group>
+  );
+};
+
+// Capa de SEPARACIÓN estilo "botón" dibujada nativa en Konva (editor). Para el
+// estilo 'lineas' no dibuja nada (se usa la imagen de plantilla).
+const SeparationLayer = ({ slots, styleId, color, plate }) => {
+  if (!slots?.length || !styleId || styleId === 'lineas') return null;
+  const prims = buildSeparationPrimitives(styleId, slots, plate);
+  return (
+    <>
+      {prims.map((p, i) => {
+        if (p.t === 'rrect')
+          return <Rect key={i} x={p.x} y={p.y} width={p.w} height={p.h} cornerRadius={p.r}
+            stroke={color} strokeWidth={SEP_STROKE_ED} listening={false} />;
+        if (p.t === 'line')
+          return <Line key={i} points={[p.x1, p.y1, p.x2, p.y2]} stroke={color}
+            strokeWidth={SEP_STROKE_ED} lineCap="round" listening={false} />;
+        if (p.t === 'poly')
+          return <Line key={i} points={p.pts} closed stroke={color}
+            strokeWidth={SEP_STROKE_ED} lineJoin="round" listening={false} />;
+        if (p.t === 'path')
+          return <Path key={i} data={p.d} stroke={color}
+            strokeWidth={SEP_STROKE_ED} listening={false} />;
+        return null;
+      })}
+    </>
+  );
+};
+
+// Miniatura SVG de un estilo de separación (para el selector del editor).
+const SEP_THUMB_SLOTS = [
+  { x: 0, y: 0, w: 0.5, h: 0.5 }, { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+  { x: 0, y: 0.5, w: 0.5, h: 0.5 }, { x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
+];
+const SepThumb = ({ styleId }) => {
+  const W = 42, H = 76, pad = 3, pw = W - 2 * pad, ph = H - 2 * pad, sw = 1.5;
+  const slots = SEP_THUMB_SLOTS.map((s) => ({ x: pad + s.x * pw, y: pad + s.y * ph, w: s.w * pw, h: s.h * ph }));
+  const prims = styleId === 'lineas'
+    ? [
+        { t: 'line', x1: pad + pw * 0.16, y1: pad + ph * 0.5, x2: pad + pw * 0.84, y2: pad + ph * 0.5 },
+        { t: 'line', x1: pad + pw * 0.5, y1: pad + ph * 0.16, x2: pad + pw * 0.5, y2: pad + ph * 0.84 },
+      ]
+    : buildSeparationPrimitives(styleId, slots, { x: pad, y: pad, w: pw, h: ph });
+  const fr = Math.min(pw, ph) * 0.14;
+  return (
+    <svg width={W} height={H} style={{ display: 'block', color: 'var(--text)' }}>
+      <rect x={pad} y={pad} width={pw} height={ph} rx={fr} ry={fr} fill="none" stroke="currentColor" strokeWidth={sw} />
+      {prims.map((p, i) => {
+        if (p.t === 'rrect') return <rect key={i} x={p.x} y={p.y} width={p.w} height={p.h} rx={p.r} ry={p.r} fill="none" stroke="currentColor" strokeWidth={sw} />;
+        if (p.t === 'line') return <line key={i} x1={p.x1} y1={p.y1} x2={p.x2} y2={p.y2} stroke="currentColor" strokeWidth={sw} strokeLinecap="round" />;
+        if (p.t === 'poly') { const pts = []; for (let j = 0; j < p.pts.length; j += 2) pts.push(`${p.pts[j]},${p.pts[j + 1]}`); return <polygon key={i} points={pts.join(' ')} fill="none" stroke="currentColor" strokeWidth={sw} strokeLinejoin="round" />; }
+        if (p.t === 'path') return <path key={i} d={p.d} fill="none" stroke="currentColor" strokeWidth={sw} />;
+        return null;
+      })}
+    </svg>
   );
 };
 
@@ -171,37 +648,148 @@ const dataSuiche = {
 const plantillaIds = ['04','05','06','07','08','09','10','11','12','13','14','15','16','17','18'];
 const getSlotsKey = (id) => `plantillas-${id}.png`;
 
+// Ruta de los iconos SVG nuevos (2026). blanco=true → versión blanca (fondo oscuro).
+const iconSvgPath = (num, blanco = false) =>
+  blanco
+    ? `/assets/ICONOS SVG BLANCOS/ICONOS APP-${num}.svg`
+    : `/assets/ICONOS SVG NEGROS/ICONOS APP-${num}.svg`;
 
-
-
-const iconNumbers = [
-  '01','02','03','04','05','06','07','08','09','10',
-  '11','12','13',"29",'30',
-  '31','32','33','34','35','36','37','38','39','40',
-  '41','57','58','59','60',
-  '61','62','63','64','65','66','67','68','69','70',
- '85','86','87','88','89','90',
-  '91','92','93','94','95','96','97','98','114','115','116','117','118','119','120',
-  '121','122','123','124','125','126',
-  '141','142','143','144','145','146','147','148','149','150',
-  '151','152','153','154','169','170',
-  '171','172','173','174','175','176','177','178','179','180',
-  '181','182',"197",'198','199','200',
-  '201','202','203','204','205','206','207','208','209','210',
- '225','226','227','228','229','230',
-  '231','232','233','234','235','236','237',"238", "239", "240" , "241", "242"  ,"243", "244", "245", "246", "247", "248", "249", "250","251", "252", "253", "254", "255", "256", "257", "258", "259"
+// ── ESTILOS DE SEPARACIÓN entre botones ──────────────────────────────────────
+// 'lineas' = rejilla clásica (imagen de plantilla). El resto se dibujan por
+// código a partir de las casillas (slots), sirven para TODAS las plantillas y
+// se ven idénticos en el editor y en la exportación.
+const SEPARATION_STYLES = [
+  { id: 'lineas',   label: 'Líneas' },
+  { id: 'boton',    label: 'Botón' },
+  { id: 'cuadrado', label: 'Cuadrado' },
+  { id: 'capsula',  label: 'Cápsula' },
+  { id: 'pildora',  label: 'Píldora' },
+  { id: 'esquinas', label: 'Esquinas' },
+  { id: 'chaflan',  label: 'Chaflán' },
+  { id: 'burbuja',  label: 'Burbuja' },
 ];
 
+// Contorno "squircle/burbuja" (superelipse) como path SVG suave. n≈4 = squircle.
+// Muestreamos la superelipse y unimos con curvas (Catmull-Rom → Bézier) → borde liso.
+function superellipsePath(cx, cy, rx, ry, n = 4, samples = 16) {
+  const pts = [];
+  for (let k = 0; k < samples; k++) {
+    const t = (k / samples) * 2 * Math.PI;
+    const ct = Math.cos(t), st = Math.sin(t);
+    const x = cx + rx * Math.sign(ct) * Math.pow(Math.abs(ct), 2 / n);
+    const y = cy + ry * Math.sign(st) * Math.pow(Math.abs(st), 2 / n);
+    pts.push([x, y]);
+  }
+  const N = pts.length;
+  const f = (v) => v.toFixed(2);
+  let d = `M ${f(pts[0][0])} ${f(pts[0][1])} `;
+  for (let i = 0; i < N; i++) {
+    const p0 = pts[(i - 1 + N) % N], p1 = pts[i], p2 = pts[(i + 1) % N], p3 = pts[(i + 2) % N];
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += `C ${f(c1x)} ${f(c1y)}, ${f(c2x)} ${f(c2y)}, ${f(p2[0])} ${f(p2[1])} `;
+  }
+  return d + 'Z';
+}
 
+// Grosor de separación en el EDITOR (0.36 mm ≈ 2.25 uds de diseño con placa=215).
+const SEP_STROKE_ED = 2.25;
+
+// ── FUENTES seleccionables para el texto de las etiquetas ────────────────────
+// italic: cursiva mecánica; upper=false: NO forzar mayúsculas (para scripts).
+const FONT_OPTIONS = [
+  { id: 'montserrat',    label: 'Montserrat',   family: 'Montserrat',        weight: 600 },
+  { id: 'montserrat-it', label: 'Montserrat it.', family: 'Montserrat',      weight: 600, italic: true },
+  { id: 'poppins',       label: 'Poppins',      family: 'Poppins',           weight: 600 },
+  { id: 'oswald',        label: 'Oswald',       family: 'Oswald',            weight: 500 },
+  { id: 'bebas',         label: 'Bebas Neue',   family: 'Bebas Neue',        weight: 400 },
+  { id: 'roboto',        label: 'Roboto Cond.', family: 'Roboto Condensed',  weight: 600 },
+  { id: 'playfair',      label: 'Playfair',     family: 'Playfair Display',  weight: 600 },
+  { id: 'playfair-it',   label: 'Playfair it.', family: 'Playfair Display',  weight: 600, italic: true },
+  { id: 'dancing',       label: 'Dancing',      family: 'Dancing Script',    weight: 600, upper: false, scale: 1.35 },
+  { id: 'pacifico',      label: 'Pacifico',     family: 'Pacifico',          weight: 400, upper: false, scale: 1.45 },
+  { id: 'greatvibes',    label: 'Great Vibes',  family: 'Great Vibes',       weight: 400, upper: false, scale: 1.7 },
+];
+const getFontOption = (id) => FONT_OPTIONS.find((f) => f.id === id) || FONT_OPTIONS[0];
+// Estilo de fuente para Konva/CSS (ej. "italic 600" | "600").
+const fontStyleStr = (o) => `${o.italic ? 'italic ' : ''}${o.weight}`;
+
+// Devuelve primitivas de dibujo en el MISMO espacio de coords que los slots:
+//   {t:'rrect',x,y,w,h,r} | {t:'line',x1,y1,x2,y2} | {t:'poly',pts:[...],closed}
+function buildSeparationPrimitives(styleId, slots) {
+  const P = [];
+  const rr = (x, y, w, h, r) => { if (w > 0 && h > 0) P.push({ t: 'rrect', x, y, w, h, r: Math.max(0, r) }); };
+  const ln = (x1, y1, x2, y2) => P.push({ t: 'line', x1, y1, x2, y2 });
+  const pl = (pts) => P.push({ t: 'poly', pts, closed: true });
+  for (const s of slots || []) {
+    const { x, y, w, h } = s;
+    const m = Math.min(w, h);
+    const g = m * 0.07; // inset uniforme respecto al lado menor (formas más amplias)
+    const ix = x + g, iy = y + g, iw = w - 2 * g, ih = h - 2 * g;
+    if (iw <= 0 || ih <= 0) continue;
+    const rB = Math.min(iw, ih);
+    switch (styleId) {
+      case 'boton':    rr(ix, iy, iw, ih, rB * 0.22); break;
+      case 'cuadrado': rr(ix, iy, iw, ih, rB * 0.10); break;
+      case 'capsula':  rr(ix, iy, iw, ih, rB * 0.42); break;
+      case 'pildora':  rr(ix, iy, iw, ih, rB * 0.5); break;
+      case 'esquinas': {
+        const L = rB * 0.28;
+        ln(ix, iy + L, ix, iy); ln(ix, iy, ix + L, iy);
+        ln(ix + iw - L, iy, ix + iw, iy); ln(ix + iw, iy, ix + iw, iy + L);
+        ln(ix, iy + ih - L, ix, iy + ih); ln(ix, iy + ih, ix + L, iy + ih);
+        ln(ix + iw - L, iy + ih, ix + iw, iy + ih); ln(ix + iw, iy + ih, ix + iw, iy + ih - L);
+        break;
+      }
+      case 'chaflan':  { const c = rB * 0.20; pl([ix + c, iy, ix + iw - c, iy, ix + iw, iy + c, ix + iw, iy + ih - c, ix + iw - c, iy + ih, ix + c, iy + ih, ix, iy + ih - c, ix, iy + c]); break; }
+      case 'burbuja':  P.push({ t: 'path', d: superellipsePath(ix + iw / 2, iy + ih / 2, iw / 2, ih / 2, 4, 16) }); break;
+      default: break; // 'lineas' se maneja con la imagen de plantilla
+    }
+  }
+  return P;
+}
+
+// Dibuja las primitivas de separación en un contexto Canvas 2D (exportación).
+function drawSeparationOnCtx(ctx, prims, strokeW) {
+  ctx.save();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = strokeW;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (const p of prims) {
+    ctx.beginPath();
+    if (p.t === 'rrect') { ctxRoundRect(ctx, p.x, p.y, p.w, p.h, p.r); ctx.stroke(); }
+    else if (p.t === 'line') { ctx.moveTo(p.x1, p.y1); ctx.lineTo(p.x2, p.y2); ctx.stroke(); }
+    else if (p.t === 'poly') { const q = p.pts; ctx.moveTo(q[0], q[1]); for (let i = 2; i < q.length; i += 2) ctx.lineTo(q[i], q[i + 1]); if (p.closed) ctx.closePath(); ctx.stroke(); }
+    else if (p.t === 'path') { ctx.stroke(new Path2D(p.d)); }
+  }
+  ctx.restore();
+}
+
+
+
+
+// Iconos SVG nuevos (2026): archivos "ICONOS APP-446.svg" … "ICONOS APP-611.svg".
+// Numeración contigua 446–611. Los PNG viejos se conservan por si hay que revertir.
+const iconNumbers = Array.from({ length: 611 - 446 + 1 }, (_, i) => String(446 + i));
+
+
+// Categorías del set nuevo (SVG 446–611), repartidas por tipo de icono.
+// "Todos" siempre contiene la lista completa (ningún icono se pierde).
 const ICON_CATEGORIES = {
-  Todos: iconNumbers,                 
-  Luces: ['01' , "09", "95", "96", "97", "98", "114", "113", "152", "197", "200"], 
-  Electrodomesticos: ['02' , "126", "177", "202", "236"],  
-     
-  Exteriores: ["59", "60", "61", "62", "63", "64", "65", "66", "67", "68", "172", "237", "201"],       
-  "Zonas Comunes": ["05", "07", "08" , "10", "11", "12", "32", "34", "36", "37", "38", "40", "41", "57", "58", "150", "151", "198"],            
-Entretenimientos: ["33", "39", "86", "87",  "89", "93", "142", "143", "144", "145", "148", "149" , "154", "178", "234", "235", "229"],      
-Ventanas : ["115", "116", "117", "118", "119", "120", "121", "122", "123", "124", "174", "175", "169", "85", "35"]  
+  Todos: iconNumbers,
+  Luces: ['446','454','498','499','500','501','502','503','527','544','571','582'],
+  'Habitación': ['450','452','453','455','456','457','475'],
+  'Baño': ['458','459','460','461','462','528','585','590'],
+  Cocina: ['448','470','489','557','558','569','581','584','595','600'],
+  Sala: ['463','465','471','472'],
+  'Electrodomésticos': ['447','515','526','538','549','580'],
+  Ventanas: ['466','504','505','506','507','508','509','511','512','513','530','535','536'],
+  Exteriores: ['476','479','482','483','484','485','486','493','494','495','521','522','532','533','540','548','551','563','565','568','570','589','592','598','599','606'],
+  'Zona Húmeda': ['477','478','480','481','564','588'],
+  Entretenimiento: ['464','490','491','492','496','517','518','523','524','529','539','559','562','567','572','573','574','575','576','577','596','601','607','608','610'],
+  Control: ['514','516','534','541','542','543','547','561','586','587','593','597','602','604','605','611'],
+  'Zonas Comunes': ['449','451','467','468','469','473','474','487','488','497','510','519','520','525','531','537','545','546','550','552','553','554','555','556','560','566','578','579','583','591','594','603','609'],
 };
 
 // Slots normalizados
@@ -520,6 +1108,10 @@ const DesignerCanvas = () => {
   const { user, ready, loginAsGuest } = useAuth();
   const { t } = usePrefs();
   const [open, setOpen] = useState(false);
+  const [exportPreview, setExportPreview] = useState(null);
+  const [showExportView, setShowExportView] = useState(false);
+  const [separationStyle, setSeparationStyle] = useState('lineas'); // estilo de separación entre botones
+  const [labelFont, setLabelFont] = useState('montserrat'); // fuente del texto de las etiquetas
 
   // Acceso libre: si nadie ha iniciado sesión, entramos como invitado.
   useEffect(() => {
@@ -832,9 +1424,11 @@ const buildTemplateSnapshot = ({ projectName, placeName }) => {
       createdAt: new Date().toISOString(),
       version: "v1",
     },
-    plateMode,                  
+    plateMode,
     theme: selectedColor,       // '#000000' | '#FFFFFF'
     suiche: selectedSuiche,     // imagen seleccionada
+    separationStyle,            // estilo de separación entre botones
+    labelFont,                  // fuente del texto de las etiquetas
   };
 
   if (plateMode === "sencilla") {
@@ -1003,6 +1597,8 @@ const applySnapshot = (snap) => {
   // 1) Tema y suiche
   setSelectedColor(snap.theme || '#000000');
   setSelectedSuiche(snap.suiche || dataSuiche.suiche4.image);
+  setSeparationStyle(snap.separationStyle || 'lineas');
+  setLabelFont(snap.labelFont || 'montserrat');
 
   if (snap.plateMode === 'doble' && snap.carcasaDoble) {
     setSelectedCarcasaDoble(snap.carcasaDoble);
@@ -1317,11 +1913,11 @@ useEffect(() => { setActiveSlotIdx(null); setSelectedIconId(null); }, [plateMode
 
 const getIconPath = (num) => {
   if (forceBlackIcons) {
-    return `/assets/ICONOS NEGROS/ICONOS BOTNOERAS-${num}.png`;
+    return iconSvgPath(num, false);
   }
   return esFondoBlanco
-    ? `/assets/ICONOS NEGROS/ICONOS BOTNOERAS-${num}.png`
-    : `/assets/ICONOS BLANCOS/ICONOS BOTNOERAS blanco-${num}.png`;
+    ? iconSvgPath(num, false)   // fondo claro → icono negro
+    : iconSvgPath(num, true);   // fondo oscuro → icono blanco
 };
 
 
@@ -1602,23 +2198,38 @@ const waitForPlantillaImages = async () => {
   });
 };
 
+  // Alterna la vista de exportación SOBRE el lienzo (cómo se verá el archivo)
+  const toggleExportView = async () => {
+    if (showExportView) { setShowExportView(false); return; }
+    try {
+      const snapshot = buildTemplateSnapshot({ projectName: "", placeName: "preview" });
+      const url = await renderPlateExport(snapshot);
+      setExportPreview(url);
+      setShowExportView(true);
+    } catch (e) {
+      console.error("Error generando vista de exportación:", e);
+      Swal.fire("Error", "No se pudo generar la vista.", "error");
+    }
+  };
+
   const handleDownloadCurrentTemplate = async () => {
-  const pngDataURL = await exportOnlyTemplateAndIconsPNG();
-  if (!pngDataURL) return;
+  // Exporta el diseño actual con el formato "ficha" (contorno + iconos + textos
+  // en mayúsculas/negrita, fondo transparente), igual que la exportación ZIP.
+  try {
+    const snapshot = buildTemplateSnapshot({ projectName: "", placeName: "plantilla" });
+    const pngDataURL = await renderPlateExport(snapshot);
+    if (!pngDataURL) return;
 
-  const link = document.createElement("a");
-  link.href = pngDataURL;
-
-  // Si tienes el nombre del lugar / plantilla
-  const fileName = ("plantilla").replace(
-    /[^a-z0-9_\-]/gi,
-    "_"
-  );
-
-  link.download = `${fileName}.png`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+    const link = document.createElement("a");
+    link.href = pngDataURL;
+    link.download = "plantilla.png";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch (e) {
+    console.error("Error exportando PNG:", e);
+    Swal.fire("Error", "No se pudo exportar el PNG.", "error");
+  }
 };
 
 const loadImage = (src) =>
@@ -1757,10 +2368,11 @@ if (plateMode === "sencilla") {
       icon.size
     );
 
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = icon.src;
-    await new Promise((resolve) => (img.onload = resolve));
+    // Forzamos los ICONOS NEGROS (versión imprimible), igual que la exportación ZIP.
+    // (Antes usaba icon.src; con placa negra ese src es blanco y quedaba invisible.)
+    if (!icon.num) continue;
+    const img = await loadImage(iconSvgPath(icon.num, false)).catch(() => null);
+    if (!img) continue;
 
     const size = icon.size;
     const fit = fitLabel(icon.label, size);
@@ -1775,7 +2387,7 @@ if (plateMode === "sencilla") {
     // Texto (mismo modelo que el editor: 1 o 2 líneas balanceadas, completo)
     if (fit.lines.length) {
       ctxFull.font = `600 ${Math.round(fit.fontSize * pixelRatio)}px Montserrat`;
-      ctxFull.fillStyle = esFondoNegro ? "#ffffff" : "#1e1e1e";
+      ctxFull.fillStyle = "#1e1e1e";
       ctxFull.textAlign = "center";
       ctxFull.textBaseline = "top";
 
@@ -1881,7 +2493,7 @@ async function renderSnapshotToPNG(snapshot) {
     const layout = layoutIconInSlot(slot, true); // true = FONDO NEGRO (negro)
     const { x, y, size } = layout;
 
-    const img = await loadImage(`/assets/ICONOS NEGROS/ICONOS BOTNOERAS-${icon.num}.png`);
+    const img = await loadImage(iconSvgPath(icon.num, false));
 
     const fit = fitLabel(icon.label, size);
     const yShift = labelYShift(fit);
@@ -1929,9 +2541,202 @@ async function renderSnapshotToPNG(snapshot) {
   return finalCanvas.toDataURL("image/png");
 }
 
-const exportProjectZIP = async (projectId) => {
-  if (!stageRef.current) return;
+// ===== Exportación estilo "ficha" (como la referencia): contorno redondeado de
+// la placa + divisorias + iconos NEGROS + etiquetas MAYÚSCULAS y negrita.
+// Fondo TRANSPARENTE. Se usa tanto para "Exportar PNG" como para "Exportar ZIP".
+async function renderPlateExport(snapshot) {
+  const plateMode = snapshot.plateMode;
 
+  // Fuente elegida para las etiquetas.
+  const fontOpt = getFontOption(snapshot.labelFont);
+  const LABEL_STYLE = fontStyleStr(fontOpt);   // p. ej. "italic 600" | "600"
+
+  // Aseguramos que la fuente esté cargada para el canvas.
+  try {
+    await document.fonts.load(`${LABEL_STYLE} 20px "${fontOpt.family}"`);
+    await document.fonts.load("600 20px Montserrat");
+  } catch { /* noop */ }
+
+  // Medida física del MARCO para la máquina láser (Omni1), en milímetros
+  const TARGET_W_MM = 34.469;
+  const TARGET_H_MM = 67.379;
+  const DPI = 1000;            // igual que la referencia (1000 DPI)
+
+  // OUTER = borde EXTERIOR del marco (lo que mide la máquina) = medida objetivo.
+  const OUTER_W = 215;
+
+  // Grosor ÚNICO de todas las líneas (marco + divisorias + trazo de icono), en mm.
+  const STROKE_MM = 0.36;
+  // A unidades de diseño: (unidades por mm) = OUTER_W / TARGET_W_MM
+  const STROKE = (STROKE_MM * OUTER_W) / TARGET_W_MM;
+
+  // La ruta del rectángulo se dibuja inset medio grosor por lado, para que el
+  // exterior (ruta + grosor) mida exactamente la medida objetivo.
+  const OUTER_H = (OUTER_W * TARGET_H_MM) / TARGET_W_MM;
+  const PLATE_W = OUTER_W - STROKE;
+  const PLATE_H = OUTER_H - STROKE;
+
+  // Resolución: el exterior (OUTER_W) mide exactamente TARGET_W_MM al DPI dado.
+  const PR = (TARGET_W_MM / OUTER_W) * (DPI / 25.4);
+  const ppm = Math.round((DPI * 1000) / 25.4); // px por metro para el chunk pHYs
+
+  const MARGIN = 10;          // margen pequeño (el marco debe ir ajustado)
+  const LABEL_W_RATIO = 0.085; // tamaño de texto ≈ 8.5% del ancho de la placa
+  const LABEL_WEIGHT = 600;    // peso de fuente
+
+  // Tamaño ESTÁNDAR del icono según el ALTO de la casilla (en mm). El dibujo LLENA el cuadro.
+  const U_PER_MM = OUTER_W / TARGET_W_MM; // unidades de diseño por mm
+  const ICON_BIG_MM = 15;     // casilla alta → icono 15 × 15 mm
+  const ICON_SMALL_MM = 9;    // casilla baja → icono 9 × 9 mm (un poco más grande)
+  const LARGE_CELL_MM = 25;   // umbral: casilla con alto ≥ 25 mm → icono grande (14mm)
+  const FONT_SMALL_MM = 1.87; // casilla baja → letra ≈ 1.87 mm (YOUTUBE ≈ 9.455 × 1.306 mm)
+  const TARGET_STROKE_PX = STROKE_MM * (ppm / 1000); // 0.36 mm en px reales
+  const ICON_STROKE_MM = 0.35; // grosor UNIFORME de los iconos (igual en toda casilla)
+  const ICON_STROKE_PX = ICON_STROKE_MM * (ppm / 1000); // 0.35 mm en px reales
+
+  const areas = plateMode === "doble"
+    ? [
+        { plate: { x: 0, y: 0, w: PLATE_W, h: PLATE_H }, plantillaId: snapshot.areas.left.plantillaId, icons: snapshot.areas.left.icons },
+        { plate: { x: PLATE_W + 28, y: 0, w: PLATE_W, h: PLATE_H }, plantillaId: snapshot.areas.right.plantillaId, icons: snapshot.areas.right.icons },
+      ]
+    : [
+        { plate: { x: 0, y: 0, w: PLATE_W, h: PLATE_H }, plantillaId: snapshot.areas.single.plantillaId, icons: snapshot.areas.single.icons },
+      ];
+
+  const minX = Math.min(...areas.map(a => a.plate.x)) - MARGIN;
+  const minY = Math.min(...areas.map(a => a.plate.y)) - MARGIN;
+  const maxX = Math.max(...areas.map(a => a.plate.x + a.plate.w)) + MARGIN;
+  const maxY = Math.max(...areas.map(a => a.plate.y + a.plate.h)) + MARGIN;
+  const W = maxX - minX, H = maxY - minY;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(W * PR);
+  canvas.height = Math.round(H * PR);
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.scale(PR, PR);
+  ctx.translate(-minX, -minY);
+
+  for (const area of areas) {
+    const p = area.plate;
+
+    // 1) Contorno redondeado de la placa (grosor único)
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = STROKE;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctxRoundRect(ctx, p.x, p.y, p.w, p.h, Math.min(p.w, p.h) * 0.11);
+    ctx.stroke();
+
+    // 2) Divisorias internas. Según el estilo elegido:
+    //    - 'lineas'  → imagen de la plantilla normalizada a 0.36 mm (rejilla).
+    //    - resto     → estilo "botón" dibujado por código a partir de las casillas.
+    const sepStyle = snapshot.separationStyle || 'lineas';
+    if (sepStyle === 'lineas') {
+      const plImg = await loadImage(`/assets/PLANTILLAS/plantillas-${area.plantillaId}.png`).catch(() => null);
+      if (plImg) {
+        const dstW = Math.max(1, Math.round(p.w * PR));
+        const dstH = Math.max(1, Math.round(p.h * PR));
+        let dcv = document.createElement("canvas");
+        dcv.width = dstW; dcv.height = dstH;
+        const dctx = dcv.getContext("2d");
+        dctx.imageSmoothingEnabled = true;
+        dctx.imageSmoothingQuality = "high";
+        dctx.drawImage(plImg, 0, 0, dstW, dstH);
+        // retroalimentación: medir el grosor real de las líneas y corregirlo a 0.36 mm
+        for (let i = 0; i < 14; i++) {
+          const s = measureStrokeCanvas(dcv);
+          if (!s) break;
+          const delta = TARGET_STROKE_PX - s;
+          if (Math.abs(delta) <= 0.5) break;
+          dcv = morphStep(dcv, delta > 0, Math.min(1.1, Math.abs(delta) / 2));
+        }
+        crispenCanvas(dcv);              // bordes nítidos + negro puro
+        ctx.drawImage(dcv, p.x, p.y, p.w, p.h); // ctx ya está escalado por PR
+      }
+    } else {
+      // Estilo "botón": vectorial, grosor único 0.36 mm, dibujado por casilla.
+      const sepSlots = getSlotsForArea(p, area.plantillaId);
+      const prims = buildSeparationPrimitives(sepStyle, sepSlots, p);
+      drawSeparationOnCtx(ctx, prims, STROKE);
+    }
+
+    // 3) Iconos + etiquetas — icono reducido (más fino) y bloque centrado en la casilla
+    const slots = getSlotsForArea(p, area.plantillaId);
+    for (const icon of area.icons || []) {
+      const slot = slots[icon.slotIdx];
+      if (!slot || !icon.num) continue;
+
+      const img = await loadImage(iconSvgPath(icon.num, false)).catch(() => null);
+      if (!img) continue;
+
+      // Tamaño ESTÁNDAR según el tipo de casilla. Una casilla es GRANDE (icono 15mm)
+      // solo si es ALTA **y** de ancho casi completo. Si está partida (angosta, hay
+      // línea del medio) va icono PEQUEÑO (9mm), aunque sea alta → no se ve gigante.
+      const cellHeightMm = slot.h / U_PER_MM;
+      const isLargeCell = cellHeightMm >= LARGE_CELL_MM && slot.w >= p.w * 0.7;
+      const boxDesign = (isLargeCell ? ICON_BIG_MM : ICON_SMALL_MM) * U_PER_MM;
+
+      // Icono VECTORIAL (SVG): alta resolución (SS=3) + grosor UNIFORME 0.35 mm
+      // (igual en casilla grande y pequeña). Al reducir de escala queda liso.
+      const SS = 3;
+      const boxPx = Math.max(1, Math.round(boxDesign * PR * SS));
+      const ic = prepareSvgIconForExport(img, boxPx, ICON_STROKE_PX * SS);
+      const iconW = ic.wPx / (PR * SS);   // ancho real del dibujo (unidades diseño)
+      const iconH = ic.hPx / (PR * SS);   // alto real del dibujo
+
+      // Texto en MAYÚSCULAS; 2+ palabras → 2 líneas
+      const lines = exportLabelLines(icon.label, fontOpt.upper !== false);
+      const maxW = slot.w * 0.94;
+      const longest = lines.length ? Math.max(...lines.map((l) => l.length)) : 0;
+      // Casillas pequeñas: letra un poco más grande (objetivo ≈ 1.87 mm).
+      const isSmallCell = !isLargeCell;
+      const fscale = fontOpt.scale || 1; // scripts se ven más pequeñas → se agrandan
+      let fs = (isSmallCell ? FONT_SMALL_MM * U_PER_MM : slot.w * LABEL_W_RATIO) * fscale;
+      const minFs = slot.w * 0.075;
+      while (fs > minFs && longest * fs * 0.72 > maxW) fs -= 0.5;
+      const lh = fs * LABEL_LINE_HEIGHT;
+      // separación icono → texto (más aire en casillas grandes)
+      const gap = boxDesign * (isLargeCell ? 0.22 : 0.13);
+
+      // LAYOUT PAREJO: reservamos una BANDA FIJA para el icono (= boxDesign, el
+      // tamaño estándar 9/15 mm) y anclamos el texto SIEMPRE a la misma altura,
+      // usando una referencia FIJA (no la altura real de cada dibujo ni el fs ya
+      // reducido). Así, en casillas del mismo tipo, todos los iconos quedan
+      // centrados a la misma Y y todos los textos empiezan a la misma Y → parejo.
+      const stdFs = (isSmallCell ? FONT_SMALL_MM * U_PER_MM : slot.w * LABEL_W_RATIO) * fscale;
+      const stdLh = stdFs * LABEL_LINE_HEIGHT;
+      const cx = slot.x + slot.w / 2;
+      const refBlockH = boxDesign + (lines.length ? gap + stdLh : 0); // icono + 1 línea
+      const top = slot.y + (slot.h - refBlockH) / 2;
+
+      // icono centrado dentro de su banda fija (conserva su proporción real)
+      const iconBandCenterY = top + boxDesign / 2;
+      ctx.drawImage(ic.canvas, cx - iconW / 2, iconBandCenterY - iconH / 2, iconW, iconH);
+
+      if (lines.length) {
+        const textTop = top + boxDesign + gap; // idéntico en casillas del mismo tipo
+        // Texto con el MISMO grosor estándar (0.36 mm) que el marco/divisorias/iconos.
+        const lb = renderLabelBlock(lines, fs * PR, LABEL_STYLE, lh * PR, TARGET_STROKE_PX, fontOpt.family);
+        ctx.drawImage(
+          lb.canvas,
+          cx - lb.wPx / (2 * PR),   // centrado en la casilla
+          textTop - lb.pad / PR,    // el margen superior del canvas alinea la 1.ª línea
+          lb.wPx / PR,
+          lb.hPx / PR
+        );
+      }
+    }
+  }
+
+  // Incrustamos la medida física (pHYs, 1000 DPI) → el marco entra a 34.469 × 67.379 mm.
+  return addPngPhys(canvas.toDataURL("image/png"), ppm, ppm);
+}
+
+// Exporta TODAS las plantillas del proyecto en UNA SOLA imagen (hoja/montaje),
+// a tamaño físico real (1000 DPI), lista para el láser. No genera ZIP.
+const exportProjectZIP = async (projectId) => {
   try {
     const res = await fetchPlantillasByProject(projectId);
     const plantillas = res?.plantillas || [];
@@ -1941,10 +2746,8 @@ const exportProjectZIP = async (projectId) => {
       return;
     }
 
-    const zip = new JSZip();
-
     Swal.fire({
-      title: "Exportando plantillas...",
+      title: "Generando imagen...",
       html: "<b id='progress-text'>Iniciando…</b>",
       allowOutsideClick: false,
       showConfirmButton: false,
@@ -1953,59 +2756,73 @@ const exportProjectZIP = async (projectId) => {
       color: "#fff",
     });
 
-    let lastSignature = "";
-
+    // 1) Renderizar cada plantilla (formato ficha) y cargarla como imagen.
+    const images = [];
     for (let i = 0; i < plantillas.length; i++) {
       const p = plantillas[i];
-
-      document.getElementById("progress-text").textContent =
-        `Procesando ${i + 1}/${plantillas.length}: ${p.placeName}`;
+      const el = document.getElementById("progress-text");
+      if (el) el.textContent = `Procesando ${i + 1}/${plantillas.length}: ${p.placeName || ""}`;
 
       const full = await fetchPlantillaById(p._id);
       if (!full?.snapshot) continue;
 
-      // ⭐ **Nuevo: aplicar snapshot correctamente**
-      await waitableApplySnapshot(full.snapshot);
-
-      // ⭐ **Asegurar cargas completas**
-      await waitForReactRender();
-      await waitForPlantillaImages();
-      await waitForImages(stageRef.current);
-      await waitForFullStabilization();
-
- const signature = JSON.stringify(full.snapshot);
-
-
-        console.log(lastSignature)
-
-      if (signature === lastSignature) {
-        console.warn("⏭ Misma firma, se omite duplicado");
-        continue;
-      }
-      
-      lastSignature = signature;
-
-      // ⭐ Exportar la imagen final
-      const pngDataURL = await renderSnapshotToPNG(full.snapshot);
-
-      if (!pngDataURL) continue;
-
-      const safeName = (p.placeName || `plantilla_${i+1}`)
-        .replace(/[^a-z0-9_\-]/gi, "_");
-
-      zip.file(`${safeName}.png`, pngDataURL.split(",")[1], { base64: true });
-
-      await new Promise(r => setTimeout(r, 200));
+      const url = await renderPlateExport(full.snapshot);
+      if (!url) continue;
+      const img = await loadImage(url).catch(() => null);
+      if (img) images.push(img);
     }
 
-    const blob = await zip.generateAsync({ type: "blob" });
-    saveAs(blob, "proyecto_plantillas.zip");
+    if (!images.length) {
+      Swal.fire("Sin contenido", "No se pudo renderizar ninguna plantilla", "error");
+      return;
+    }
 
-    Swal.fire("¡Listo!","Se exportaron todas las plantillas exitosamente","success");
+    // 2) Componer en una CUADRÍCULA, 1:1 (sin escalar → conserva la medida física).
+    //    La celda usa el tamaño mayor encontrado (por si hay sencillas y dobles);
+    //    cada plantilla se centra en su celda.
+    const cellW = Math.max(...images.map((im) => im.naturalWidth));
+    const cellH = Math.max(...images.map((im) => im.naturalHeight));
+    const GAP = Math.round(cellW * 0.06); // pequeño espacio entre plantillas
+    // columnas para que la hoja quede aprox. cuadrada (las placas son altas)
+    const cols = Math.max(1, Math.round(Math.sqrt(images.length * (cellH / cellW))));
+    const rows = Math.ceil(images.length / cols);
 
-  } catch(err) {
+    const W = cols * cellW + (cols - 1) * GAP;
+    const H = rows * cellH + (rows - 1) * GAP;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+
+    images.forEach((im, idx) => {
+      const c = idx % cols, r = Math.floor(idx / cols);
+      const cellX = c * (cellW + GAP), cellY = r * (cellH + GAP);
+      // centrar la plantilla dentro de su celda
+      const dx = cellX + Math.round((cellW - im.naturalWidth) / 2);
+      const dy = cellY + Math.round((cellH - im.naturalHeight) / 2);
+      ctx.drawImage(im, dx, dy, im.naturalWidth, im.naturalHeight);
+    });
+
+    // 3) Incrustar medida física (pHYs, 1000 DPI) → cada placa entra a tamaño real.
+    const ppm = Math.round((1000 * 1000) / 25.4);
+    const out = addPngPhys(canvas.toDataURL("image/png"), ppm, ppm);
+
+    // 4) Descargar UNA sola imagen, con el NOMBRE del proyecto.
+    const proj = projects.find((p) => p._id === projectId);
+    const projName = (proj?.name || selectedProjectName || "proyecto").trim();
+    const safeName = projName.replace(/[^a-z0-9_\-]/gi, "_") || "proyecto";
+    const a = document.createElement("a");
+    a.href = out;
+    a.download = `${safeName}_plantillas.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    Swal.fire("¡Listo!", `Se combinaron ${images.length} plantillas en una sola imagen`, "success");
+  } catch (err) {
     console.error(err);
-    Swal.fire("Error", "No se pudo generar el ZIP", "error");
+    Swal.fire("Error", "No se pudo generar la imagen", "error");
   }
 };
 const forceFullRebuild = () => {
@@ -2024,6 +2841,15 @@ const forceFullRebuild = () => {
     <ProfileBar onClickHome={() => nav("/")} />
     <div className={styles.contendor3}>
     <PrefsToggle />
+    <button
+      className={styles.smallButton3}
+      style={showExportView
+        ? { color: 'var(--text-ink)', background: 'var(--brand-grad)', borderColor: 'transparent' }
+        : { color: 'var(--brand-1)', borderColor: 'var(--stroke-brand)' }}
+      onClick={toggleExportView}
+    >
+      <Eye /> {showExportView ? 'Ver diseño' : 'Vista export'}
+    </button>
     {user?.guest && (
       <button
         className={styles.smallButton3}
@@ -2947,6 +3773,59 @@ const forceFullRebuild = () => {
 
 
          
+        <hr />
+        <h4 className={styles.sectionTitle}>Separación</h4>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {SEPARATION_STYLES.map((st) => {
+            const active = separationStyle === st.id;
+            return (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => setSeparationStyle(st.id)}
+                title={st.label}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                  padding: 6, borderRadius: 10, cursor: 'pointer',
+                  border: active ? '2px solid var(--brand-1)' : '1px solid var(--stroke)',
+                  background: active ? 'var(--stroke-brand, rgba(14,165,233,.10))' : 'var(--glass)',
+                }}
+              >
+                <SepThumb styleId={st.id} />
+                <span style={{ fontSize: 11, color: 'var(--text)' }}>{st.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <hr />
+        <h4 className={styles.sectionTitle}>Fuente</h4>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {FONT_OPTIONS.map((fo) => {
+            const active = labelFont === fo.id;
+            return (
+              <button
+                key={fo.id}
+                type="button"
+                onClick={() => setLabelFont(fo.id)}
+                title={fo.label}
+                style={{
+                  padding: '6px 12px', borderRadius: 10, cursor: 'pointer',
+                  border: active ? '2px solid var(--brand-1)' : '1px solid var(--stroke)',
+                  background: active ? 'var(--stroke-brand, rgba(14,165,233,.10))' : 'var(--glass)',
+                  color: 'var(--text)',
+                  fontFamily: fo.family,
+                  fontStyle: fo.italic ? 'italic' : 'normal',
+                  fontWeight: fo.weight,
+                  fontSize: 15,
+                }}
+              >
+                {fo.label}
+              </button>
+            );
+          })}
+        </div>
+
         </aside>
 
         <main className={styles.mainArea}>
@@ -2980,6 +3859,27 @@ const forceFullRebuild = () => {
   <span style={{ marginTop: 10 }}>Cargando imagen...</span>
 </div>
 
+)}
+
+{showExportView && exportPreview && (
+  <div style={{
+    position: 'absolute',
+    inset: 0,
+    zIndex: 45,
+    background: '#ffffff',
+    borderRadius: 'var(--r-xl)',
+    display: 'grid',
+    placeItems: 'center',
+    padding: 18,
+    overflow: 'hidden',
+    boxShadow: 'var(--shadow-lg)',
+  }}>
+    <img
+      src={exportPreview}
+      alt="Vista de exportación"
+      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+    />
+  </div>
 )}
              <div ref={canvasHostRef} className={styles.canvasCard}>
     <Stage
@@ -3022,7 +3922,7 @@ const forceFullRebuild = () => {
 )}
 
     
-      {plantillaSingle && (
+      {plantillaSingle && separationStyle === 'lineas' && (
   isExporting ? (
     // Durante la exportación la dibujo a tamaño completo del recorte
     <KonvaImage
@@ -3040,6 +3940,9 @@ const forceFullRebuild = () => {
       listening={false}
     />
   )
+)}
+{separationStyle !== 'lineas' && (
+  <SeparationLayer slots={slotsSingle} styleId={separationStyle} plate={SINGLE_PLATE} color={esFondoNegro ? '#ffffff' : '#111111'} />
 )}
 
         {/* Slots + selección de slot (ocultos cuando exportas) */}
@@ -3062,7 +3965,9 @@ const forceFullRebuild = () => {
 
 
         {iconsSingle.map(icon => (
-          <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
+          EDITOR_EXPORT_STYLE
+            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsSingle[icon.slotIdx]} plateW={SINGLE_PLATE.w} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
+            : <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
         ))}
       </>
     )}
@@ -3073,7 +3978,10 @@ const forceFullRebuild = () => {
 
         {/* IZQUIERDA */}
         <Rect x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h} fill={selectedColor} cornerRadius={15}/>
-{plantillaLeft && (          <KonvaImage image={plantillaLeft} x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h}/>
+{plantillaLeft && separationStyle === 'lineas' && (          <KonvaImage image={plantillaLeft} x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h}/>
+          )}
+          {separationStyle !== 'lineas' && (
+            <SeparationLayer slots={slotsLeft} styleId={separationStyle} plate={DOUBLE_PLATE_LEFT} color={esFondoNegro ? '#ffffff' : '#111111'} />
           )}
           { slotsLeft.map((s, i) => (
             <Rect
@@ -3092,13 +4000,18 @@ const forceFullRebuild = () => {
             />
           ))}
         {iconsLeft.map(icon => (
-          <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
+          EDITOR_EXPORT_STYLE
+            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsLeft[icon.slotIdx]} plateW={DOUBLE_PLATE_LEFT.w} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
+            : <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
         ))}
 
         {/* DERECHA */}
         <Rect x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h} fill={selectedColor} cornerRadius={15}/>
-      {plantillaRight && (
+      {plantillaRight && separationStyle === 'lineas' && (
           <KonvaImage image={plantillaRight} x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h}/>
+        )}
+        {separationStyle !== 'lineas' && (
+          <SeparationLayer slots={slotsRight} styleId={separationStyle} plate={DOUBLE_PLATE_RIGHT} color={esFondoNegro ? '#ffffff' : '#111111'} />
         )}
 
 { slotsRight.map((s, i) => (
@@ -3118,7 +4031,9 @@ const forceFullRebuild = () => {
   />
 ))}
         {iconsRight.map(icon => (
-          <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
+          EDITOR_EXPORT_STYLE
+            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsRight[icon.slotIdx]} plateW={DOUBLE_PLATE_RIGHT.w} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
+            : <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
         ))}
       </>
     )}
@@ -3259,11 +4174,11 @@ const forceFullRebuild = () => {
       }
 
       return filtered.map((num) => {
-        const label = num; // si más adelante usas metadatos, cambia esto
+        const label = num; // solo para la miniatura del selector
         return (
           <button
             key={`${selectedCategory}-${num}`}
-            onClick={() => { placeOrReplaceIcon(num, label); setIconsModalOpen(false); }}
+            onClick={() => { placeOrReplaceIcon(num, ''); setIconsModalOpen(false); }}
             className={styles.iconoButton}
             title={`Icono ${num}`}
           >
