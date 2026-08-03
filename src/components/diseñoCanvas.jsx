@@ -436,7 +436,7 @@ const ED_U_PER_MM = 215 / 34.469; // unidades de diseño por mm (igual que el ex
 const ED_ICON_BIG_MM = 15, ED_ICON_SMALL_MM = 9, ED_LARGE_CELL_MM = 25;
 const ED_FONT_SMALL_MM = 1.87, ED_LABEL_W_RATIO = 0.085;
 
-const ExportStyleIcon = ({ icon, slot, plateW, isWhite, onSelect, fontOpt }) => {
+const ExportStyleIcon = ({ icon, slot, plate, isWhite, onSelect, fontOpt }) => {
   const fo = fontOpt || FONT_OPTIONS[0];
   const [img] = useImage(iconSvgPath(icon.num, isWhite));
   const [bbox, setBbox] = useState(null);
@@ -471,30 +471,38 @@ const ExportStyleIcon = ({ icon, slot, plateW, isWhite, onSelect, fontOpt }) => 
 
   const U = ED_U_PER_MM;
   const cellHeightMm = slot.h / U;
-  const isLarge = cellHeightMm >= ED_LARGE_CELL_MM && slot.w >= plateW * 0.7;
-  const boxDesign = (isLarge ? ED_ICON_BIG_MM : ED_ICON_SMALL_MM) * U;
-
-  // content-fit: dimensión mayor = boxDesign (conserva proporción del contenido)
-  const scl = boxDesign / Math.max(bbox.w, bbox.h);
-  const iconW = bbox.w * scl, iconH = bbox.h * scl;
-
-  // etiqueta (mayúsculas salvo fuentes script) — mismo modelo del export
-  const lines = exportLabelLines(icon.label, fo.upper !== false);
+  const isLarge = cellHeightMm >= ED_LARGE_CELL_MM && slot.w >= (plate?.w || slot.w) * 0.7;
   const isSmall = !isLarge;
+  // Área REAL delimitada por las líneas (inset del marco donde no llegan las líneas).
+  const cell = innerCellRect(slot, plate);
   const fscale = fo.scale || 1; // scripts se ven más pequeñas → se agrandan
-  const maxW = slot.w * 0.94;
+
+  // 1) TEXTO primero (para reservar su espacio).
+  const lines = exportLabelLines(icon.label, fo.upper !== false);
+  const maxW = cell.w * 0.94;
   const longest = lines.length ? Math.max(...lines.map((l) => l.length)) : 0;
   let fs = (isSmall ? ED_FONT_SMALL_MM * U : slot.w * ED_LABEL_W_RATIO) * fscale;
   const minFs = slot.w * 0.075;
   while (fs > minFs && longest * fs * 0.72 > maxW) fs -= 0.5;
   const lh = fs * LABEL_LINE_HEIGHT;
-  const stdFs = (isSmall ? ED_FONT_SMALL_MM * U : slot.w * ED_LABEL_W_RATIO) * fscale;
-  const stdLh = stdFs * LABEL_LINE_HEIGHT;
-  const gap = boxDesign * (isLarge ? 0.22 : 0.13);
+  const gap = fs * (isLarge ? 0.7 : 0.5);
+  const labelH = lines.length ? gap + lines.length * lh : 0;
 
-  const cx = slot.x + slot.w / 2;
-  const refBlockH = boxDesign + (lines.length ? gap + stdLh : 0);
-  const top = slot.y + (slot.h - refBlockH) / 2;
+  // 2) ICONO: limitado por ancho del cuadro y por el espacio del texto (no se sale).
+  const boxDesign = Math.min(
+    (isLarge ? ED_ICON_BIG_MM : ED_ICON_SMALL_MM) * U,
+    cell.w * 0.72,
+    Math.max(cell.h * 0.28, cell.h * 0.92 - labelH)
+  );
+
+  // content-fit: dimensión mayor = boxDesign (conserva proporción del contenido)
+  const scl = boxDesign / Math.max(bbox.w, bbox.h);
+  const iconW = bbox.w * scl, iconH = bbox.h * scl;
+
+  // 3) Centrar el BLOQUE (icono + texto) dentro del cuadro.
+  const blockH = boxDesign + labelH;
+  const cx = cell.x + cell.w / 2;
+  const top = cell.y + (cell.h - blockH) / 2;
   const iconBandCenterY = top + boxDesign / 2;
   const textTop = top + boxDesign + gap;
 
@@ -510,9 +518,9 @@ const ExportStyleIcon = ({ icon, slot, plateW, isWhite, onSelect, fontOpt }) => 
       />
       {lines.length > 0 && (
         <Text
-          x={slot.x}
+          x={cell.x}
           y={textTop}
-          width={slot.w}
+          width={cell.w}
           text={lines.join("\n")}
           fontFamily={fo.family}
           fontSize={fs}
@@ -653,6 +661,25 @@ const iconSvgPath = (num, blanco = false) =>
   blanco
     ? `/assets/ICONOS SVG BLANCOS/ICONOS APP-${num}.svg`
     : `/assets/ICONOS SVG NEGROS/ICONOS APP-${num}.svg`;
+
+// Rectángulo REAL de una casilla para centrar/seleccionar: en los lados que dan al
+// MARCO exterior se inseta (las líneas de la plantilla no llegan al borde), y en los
+// lados que dan a una DIVISORIA se deja igual. Así el centrado (y el cuadro azul de
+// selección) queda dentro del área delimitada por las líneas, no hasta el borde.
+function innerCellRect(slot, plate) {
+  if (!plate || !plate.w) return slot;
+  const m = plate.w * 0.075;   // margen ≈ el de las líneas de la plantilla
+  const tol = plate.w * 0.02;
+  const atL = slot.x <= plate.x + tol;
+  const atR = slot.x + slot.w >= plate.x + plate.w - tol;
+  const atT = slot.y <= plate.y + tol;
+  const atB = slot.y + slot.h >= plate.y + plate.h - tol;
+  const x = slot.x + (atL ? m : 0);
+  const r = slot.x + slot.w - (atR ? m : 0);
+  const y = slot.y + (atT ? m : 0);
+  const b = slot.y + slot.h - (atB ? m : 0);
+  return { x, y, w: Math.max(1, r - x), h: Math.max(1, b - y) };
+}
 
 // ── ESTILOS DE SEPARACIÓN entre botones ──────────────────────────────────────
 // 'lineas' = rejilla clásica (imagen de plantilla). El resto se dibujan por
@@ -894,6 +921,12 @@ const SINGLE_PLATE = { x: 485, y: 228, w: 215, h: 405 };
 const DOUBLE_PLATE_LEFT  = { x: 360, y: 235, w: 205, h: 395 };
 const DOUBLE_PLATE_RIGHT = { x: 620, y: 235, w: 205, h: 395 };
 
+// Placa SENCILLA en HORIZONTAL: mismo centro, ancho y alto intercambiados.
+const SC = { x: SINGLE_PLATE.x + SINGLE_PLATE.w / 2, y: SINGLE_PLATE.y + SINGLE_PLATE.h / 2 };
+const SINGLE_PLATE_H = { x: SC.x - SINGLE_PLATE.h / 2, y: SC.y - SINGLE_PLATE.w / 2, w: SINGLE_PLATE.h, h: SINGLE_PLATE.w };
+// Rota un slot normalizado 90° en sentido horario (para casar con la imagen rotada).
+const rotSlotCW = (s) => ({ x: 1 - (s.y + s.h), y: s.x, w: s.h, h: s.w });
+
 
 
 const getSlotsFor = (filename) => {
@@ -902,8 +935,9 @@ const getSlotsFor = (filename) => {
 };
 
 
-const getSlotsForArea = (area, plantillaId) => {
-  const base = PLANTILLA_SLOTS[getSlotsKey(plantillaId)] || [];
+const getSlotsForArea = (area, plantillaId, orientation = 'vertical') => {
+  let base = PLANTILLA_SLOTS[getSlotsKey(plantillaId)] || [];
+  if (orientation === 'horizontal') base = base.map(rotSlotCW);
   return base.map(s => ({
     x: area.x + s.x * area.w,
     y: area.y + s.y * area.h,
@@ -1112,6 +1146,7 @@ const DesignerCanvas = () => {
   const [showExportView, setShowExportView] = useState(false);
   const [separationStyle, setSeparationStyle] = useState('lineas'); // estilo de separación entre botones
   const [labelFont, setLabelFont] = useState('montserrat'); // fuente del texto de las etiquetas
+  const [orientation, setOrientation] = useState('vertical'); // 'vertical' | 'horizontal'
 
   // Acceso libre: si nadie ha iniciado sesión, entramos como invitado.
   useEffect(() => {
@@ -1250,8 +1285,12 @@ const isLoadingImage =
   (plateMode === 'doble' && carcasaDobleStatus === 'loading');
 
 
+// Placa sencilla según orientación (horizontal = ancho×alto intercambiados).
+const isHorizontal = orientation === 'horizontal';
+const plateSingle = isHorizontal ? SINGLE_PLATE_H : SINGLE_PLATE;
+
 // SLOTS por área
-const slotsSingle = getSlotsForArea(SINGLE_PLATE, selectedPlantillaSingle) || [];
+const slotsSingle = getSlotsForArea(plateSingle, selectedPlantillaSingle, orientation) || [];
 const slotsLeft   = getSlotsForArea(DOUBLE_PLATE_LEFT,  selectedPlantillaLeft) || [];
 const slotsRight  = getSlotsForArea(DOUBLE_PLATE_RIGHT, selectedPlantillaRight) || [];
 
@@ -1429,6 +1468,7 @@ const buildTemplateSnapshot = ({ projectName, placeName }) => {
     suiche: selectedSuiche,     // imagen seleccionada
     separationStyle,            // estilo de separación entre botones
     labelFont,                  // fuente del texto de las etiquetas
+    orientation,                // 'vertical' | 'horizontal'
   };
 
   if (plateMode === "sencilla") {
@@ -1599,6 +1639,7 @@ const applySnapshot = (snap) => {
   setSelectedSuiche(snap.suiche || dataSuiche.suiche4.image);
   setSeparationStyle(snap.separationStyle || 'lineas');
   setLabelFont(snap.labelFont || 'montserrat');
+  setOrientation(snap.orientation || 'vertical');
 
   if (snap.plateMode === 'doble' && snap.carcasaDoble) {
     setSelectedCarcasaDoble(snap.carcasaDoble);
@@ -2557,9 +2598,12 @@ async function renderPlateExport(snapshot) {
     await document.fonts.load("600 20px Montserrat");
   } catch { /* noop */ }
 
+  // Orientación: horizontal = ancho×alto intercambiados (marco acostado).
+  const horizontal = snapshot.orientation === 'horizontal';
+
   // Medida física del MARCO para la máquina láser (Omni1), en milímetros
-  const TARGET_W_MM = 34.469;
-  const TARGET_H_MM = 67.379;
+  const TARGET_W_MM = horizontal ? 67.379 : 34.469;
+  const TARGET_H_MM = horizontal ? 34.469 : 67.379;
   const DPI = 1000;            // igual que la referencia (1000 DPI)
 
   // OUTER = borde EXTERIOR del marco (lo que mide la máquina) = medida objetivo.
@@ -2643,7 +2687,16 @@ async function renderPlateExport(snapshot) {
         const dctx = dcv.getContext("2d");
         dctx.imageSmoothingEnabled = true;
         dctx.imageSmoothingQuality = "high";
-        dctx.drawImage(plImg, 0, 0, dstW, dstH);
+        if (horizontal) {
+          // Horizontal: rotar la imagen de líneas 90° (igual que rotSlotCW).
+          dctx.save();
+          dctx.translate(dstW / 2, dstH / 2);
+          dctx.rotate(Math.PI / 2);
+          dctx.drawImage(plImg, -dstH / 2, -dstW / 2, dstH, dstW);
+          dctx.restore();
+        } else {
+          dctx.drawImage(plImg, 0, 0, dstW, dstH);
+        }
         // retroalimentación: medir el grosor real de las líneas y corregirlo a 0.36 mm
         for (let i = 0; i < 14; i++) {
           const s = measureStrokeCanvas(dcv);
@@ -2657,13 +2710,13 @@ async function renderPlateExport(snapshot) {
       }
     } else {
       // Estilo "botón": vectorial, grosor único 0.36 mm, dibujado por casilla.
-      const sepSlots = getSlotsForArea(p, area.plantillaId);
+      const sepSlots = getSlotsForArea(p, area.plantillaId, snapshot.orientation);
       const prims = buildSeparationPrimitives(sepStyle, sepSlots, p);
       drawSeparationOnCtx(ctx, prims, STROKE);
     }
 
     // 3) Iconos + etiquetas — icono reducido (más fino) y bloque centrado en la casilla
-    const slots = getSlotsForArea(p, area.plantillaId);
+    const slots = getSlotsForArea(p, area.plantillaId, snapshot.orientation);
     for (const icon of area.icons || []) {
       const slot = slots[icon.slotIdx];
       if (!slot || !icon.num) continue;
@@ -2676,47 +2729,46 @@ async function renderPlateExport(snapshot) {
       // línea del medio) va icono PEQUEÑO (9mm), aunque sea alta → no se ve gigante.
       const cellHeightMm = slot.h / U_PER_MM;
       const isLargeCell = cellHeightMm >= LARGE_CELL_MM && slot.w >= p.w * 0.7;
-      const boxDesign = (isLargeCell ? ICON_BIG_MM : ICON_SMALL_MM) * U_PER_MM;
+      const isSmallCell = !isLargeCell;
+      // Área REAL delimitada por las líneas (inset del marco donde no llegan las líneas).
+      const cell = innerCellRect(slot, p);
+      const fscale = fontOpt.scale || 1; // scripts se ven más pequeñas → se agrandan
 
-      // Icono VECTORIAL (SVG): alta resolución (SS=3) + grosor UNIFORME 0.35 mm
-      // (igual en casilla grande y pequeña). Al reducir de escala queda liso.
+      // 1) TEXTO primero (para saber cuánto espacio ocupa y reservarlo).
+      const lines = exportLabelLines(icon.label, fontOpt.upper !== false);
+      const maxW = cell.w * 0.94;
+      const longest = lines.length ? Math.max(...lines.map((l) => l.length)) : 0;
+      let fs = (isSmallCell ? FONT_SMALL_MM * U_PER_MM : slot.w * LABEL_W_RATIO) * fscale;
+      const minFs = slot.w * 0.075;
+      while (fs > minFs && longest * fs * 0.72 > maxW) fs -= 0.5;
+      const lh = fs * LABEL_LINE_HEIGHT;
+      const gap = fs * (isLargeCell ? 0.7 : 0.5); // separación icono→texto (no depende del icono)
+      const labelH = lines.length ? gap + lines.length * lh : 0;
+
+      // 2) ICONO: estándar, pero LIMITADO por el ancho del cuadro y por el espacio
+      // que deja el texto → así el texto largo (2 líneas) NO se sale del cuadro.
+      const boxDesign = Math.min(
+        (isLargeCell ? ICON_BIG_MM : ICON_SMALL_MM) * U_PER_MM,
+        cell.w * 0.72,
+        Math.max(cell.h * 0.28, cell.h * 0.92 - labelH)
+      );
+
+      // Icono VECTORIAL (SVG): alta resolución (SS=3) + grosor UNIFORME 0.35 mm.
       const SS = 3;
       const boxPx = Math.max(1, Math.round(boxDesign * PR * SS));
       const ic = prepareSvgIconForExport(img, boxPx, ICON_STROKE_PX * SS);
       const iconW = ic.wPx / (PR * SS);   // ancho real del dibujo (unidades diseño)
       const iconH = ic.hPx / (PR * SS);   // alto real del dibujo
 
-      // Texto en MAYÚSCULAS; 2+ palabras → 2 líneas
-      const lines = exportLabelLines(icon.label, fontOpt.upper !== false);
-      const maxW = slot.w * 0.94;
-      const longest = lines.length ? Math.max(...lines.map((l) => l.length)) : 0;
-      // Casillas pequeñas: letra un poco más grande (objetivo ≈ 1.87 mm).
-      const isSmallCell = !isLargeCell;
-      const fscale = fontOpt.scale || 1; // scripts se ven más pequeñas → se agrandan
-      let fs = (isSmallCell ? FONT_SMALL_MM * U_PER_MM : slot.w * LABEL_W_RATIO) * fscale;
-      const minFs = slot.w * 0.075;
-      while (fs > minFs && longest * fs * 0.72 > maxW) fs -= 0.5;
-      const lh = fs * LABEL_LINE_HEIGHT;
-      // separación icono → texto (más aire en casillas grandes)
-      const gap = boxDesign * (isLargeCell ? 0.22 : 0.13);
-
-      // LAYOUT PAREJO: reservamos una BANDA FIJA para el icono (= boxDesign, el
-      // tamaño estándar 9/15 mm) y anclamos el texto SIEMPRE a la misma altura,
-      // usando una referencia FIJA (no la altura real de cada dibujo ni el fs ya
-      // reducido). Así, en casillas del mismo tipo, todos los iconos quedan
-      // centrados a la misma Y y todos los textos empiezan a la misma Y → parejo.
-      const stdFs = (isSmallCell ? FONT_SMALL_MM * U_PER_MM : slot.w * LABEL_W_RATIO) * fscale;
-      const stdLh = stdFs * LABEL_LINE_HEIGHT;
-      const cx = slot.x + slot.w / 2;
-      const refBlockH = boxDesign + (lines.length ? gap + stdLh : 0); // icono + 1 línea
-      const top = slot.y + (slot.h - refBlockH) / 2;
-
-      // icono centrado dentro de su banda fija (conserva su proporción real)
+      // 3) Centrar el BLOQUE (icono + texto) dentro del cuadro.
+      const blockH = boxDesign + labelH;
+      const cx = cell.x + cell.w / 2;
+      const top = cell.y + (cell.h - blockH) / 2;
       const iconBandCenterY = top + boxDesign / 2;
       ctx.drawImage(ic.canvas, cx - iconW / 2, iconBandCenterY - iconH / 2, iconW, iconH);
 
       if (lines.length) {
-        const textTop = top + boxDesign + gap; // idéntico en casillas del mismo tipo
+        const textTop = top + boxDesign + gap;
         // Texto con el MISMO grosor estándar (0.36 mm) que el marco/divisorias/iconos.
         const lb = renderLabelBlock(lines, fs * PR, LABEL_STYLE, lh * PR, TARGET_STROKE_PX, fontOpt.family);
         ctx.drawImage(
@@ -3650,6 +3702,28 @@ const forceFullRebuild = () => {
 
 <hr />
 
+<h4 className={styles.sectionTitle}>Orientación</h4>
+<div className={styles.toggleRow}>
+  <button
+    type="button"
+    className={`${styles.smallButton} ${styles.plateToggle} ${orientation==='vertical' ? styles.active : ''}`}
+    onClick={() => setOrientation('vertical')}
+    aria-pressed={orientation==='vertical'}
+    title="Vertical"
+    style={{ fontWeight: 700 }}
+  >Vertical</button>
+  <button
+    type="button"
+    className={`${styles.smallButton} ${styles.plateToggle} ${orientation==='horizontal' ? styles.active : ''}`}
+    onClick={() => { setPlateMode('sencilla'); setActiveArea('single'); setOrientation('horizontal'); }}
+    aria-pressed={orientation==='horizontal'}
+    title="Horizontal"
+    style={{ fontWeight: 700 }}
+  >Horizontal</button>
+</div>
+
+<hr />
+
       <h4 className={styles.sectionTitle}>{t("editor.suicheStyle")}</h4>
 <button
   type="button"
@@ -3900,30 +3974,48 @@ const forceFullRebuild = () => {
       <>
       
     {showCarcasa && carcasaSingle && (
-  <KonvaImage
-    image={carcasaSingle}
-    x={200}
-    y={40}
-    width={785}
-    height={785}
-    className={styles.carcasa}
-  />
+  isHorizontal ? (
+    <KonvaImage
+      image={carcasaSingle}
+      x={592.5} y={432.5} width={785} height={785}
+      offsetX={392.5} offsetY={392.5} rotation={90}
+      className={styles.carcasa}
+    />
+  ) : (
+    <KonvaImage
+      image={carcasaSingle}
+      x={200}
+      y={40}
+      width={785}
+      height={785}
+      className={styles.carcasa}
+    />
+  )
 )}
 
   {showFondo && (
   <Rect
-    x={SINGLE_PLATE.x}
-    y={SINGLE_PLATE.y}
-    width={SINGLE_PLATE.w}
-    height={SINGLE_PLATE.h}
+    x={plateSingle.x}
+    y={plateSingle.y}
+    width={plateSingle.w}
+    height={plateSingle.h}
     fill={selectedColor}
     cornerRadius={15}
   />
 )}
 
-    
+
       {plantillaSingle && separationStyle === 'lineas' && (
-  isExporting ? (
+  isHorizontal ? (
+    // Horizontal: la imagen de líneas se rota 90° alrededor del centro de la placa.
+    <KonvaImage
+      image={plantillaSingle}
+      x={592.5} y={430.5}
+      width={SINGLE_PLATE.w} height={SINGLE_PLATE.h}
+      offsetX={SINGLE_PLATE.w / 2} offsetY={SINGLE_PLATE.h / 2} rotation={90}
+      listening={false}
+    />
+  ) : isExporting ? (
     // Durante la exportación la dibujo a tamaño completo del recorte
     <KonvaImage
       image={plantillaSingle}
@@ -3942,17 +4034,17 @@ const forceFullRebuild = () => {
   )
 )}
 {separationStyle !== 'lineas' && (
-  <SeparationLayer slots={slotsSingle} styleId={separationStyle} plate={SINGLE_PLATE} color={esFondoNegro ? '#ffffff' : '#111111'} />
+  <SeparationLayer slots={slotsSingle} styleId={separationStyle} plate={plateSingle} color={esFondoNegro ? '#ffffff' : '#111111'} />
 )}
 
         {/* Slots + selección de slot (ocultos cuando exportas) */}
-     {!isExporting && slotsSingle.map((s, i) => (
+     {!isExporting && slotsSingle.map((s, i) => { const c = innerCellRect(s, plateSingle); return (
         <Rect
           key={`single-${i}`}
-          x={s.x}
-          y={s.y}
-          width={s.w}
-          height={s.h}
+          x={c.x}
+          y={c.y}
+          width={c.w}
+          height={c.h}
           cornerRadius={12}
           listening
           onClick={(e) => { e.cancelBubble = true; setActiveArea('single'); setActiveSlotIdx(i); }}
@@ -3961,12 +4053,12 @@ const forceFullRebuild = () => {
           strokeWidth={activeArea === 'single' && i === activeSlotIdx ? 2 : 0}
           shadowBlur={activeArea === 'single' && i === activeSlotIdx ? 6 : 0}
         />
-      ))}
+      );})}
 
 
         {iconsSingle.map(icon => (
           EDITOR_EXPORT_STYLE
-            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsSingle[icon.slotIdx]} plateW={SINGLE_PLATE.w} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
+            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsSingle[icon.slotIdx]} plate={plateSingle} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
             : <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
         ))}
       </>
@@ -3983,13 +4075,13 @@ const forceFullRebuild = () => {
           {separationStyle !== 'lineas' && (
             <SeparationLayer slots={slotsLeft} styleId={separationStyle} plate={DOUBLE_PLATE_LEFT} color={esFondoNegro ? '#ffffff' : '#111111'} />
           )}
-          { slotsLeft.map((s, i) => (
+          { slotsLeft.map((s, i) => { const c = innerCellRect(s, DOUBLE_PLATE_LEFT); return (
             <Rect
               key={`left-${i}`}
-              x={s.x}
-              y={s.y}
-              width={s.w}
-              height={s.h}
+              x={c.x}
+              y={c.y}
+              width={c.w}
+              height={c.h}
               cornerRadius={12}
               listening
               onClick={(e) => { e.cancelBubble = true; setActiveArea('left'); setActiveSlotIdx(i); }}
@@ -3998,10 +4090,10 @@ const forceFullRebuild = () => {
               strokeWidth={activeArea === 'left' && i === activeSlotIdx ? 2 : 0}
               shadowBlur={activeArea === 'left' && i === activeSlotIdx ? 6 : 0}
             />
-          ))}
+          );})}
         {iconsLeft.map(icon => (
           EDITOR_EXPORT_STYLE
-            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsLeft[icon.slotIdx]} plateW={DOUBLE_PLATE_LEFT.w} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
+            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsLeft[icon.slotIdx]} plate={DOUBLE_PLATE_LEFT} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
             : <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
         ))}
 
@@ -4014,13 +4106,13 @@ const forceFullRebuild = () => {
           <SeparationLayer slots={slotsRight} styleId={separationStyle} plate={DOUBLE_PLATE_RIGHT} color={esFondoNegro ? '#ffffff' : '#111111'} />
         )}
 
-{ slotsRight.map((s, i) => (
+{ slotsRight.map((s, i) => { const c = innerCellRect(s, DOUBLE_PLATE_RIGHT); return (
   <Rect
     key={`right-${i}`}
-    x={s.x}
-    y={s.y}
-    width={s.w}
-    height={s.h}
+    x={c.x}
+    y={c.y}
+    width={c.w}
+    height={c.h}
     cornerRadius={12}
     listening
     onClick={(e) => { e.cancelBubble = true; setActiveArea('right'); setActiveSlotIdx(i); }}
@@ -4029,10 +4121,10 @@ const forceFullRebuild = () => {
     strokeWidth={activeArea === 'right' && i === activeSlotIdx ? 2 : 0}
     shadowBlur={activeArea === 'right' && i === activeSlotIdx ? 6 : 0}
   />
-))}
+);})}
         {iconsRight.map(icon => (
           EDITOR_EXPORT_STYLE
-            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsRight[icon.slotIdx]} plateW={DOUBLE_PLATE_RIGHT.w} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
+            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsRight[icon.slotIdx]} plate={DOUBLE_PLATE_RIGHT} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
             : <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
         ))}
       </>
