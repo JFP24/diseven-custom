@@ -792,3 +792,30 @@
   .iconGridSide { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .mainArea { padding: 10px; }
 }
+
+/* ---------- Cantidad de copias en la lámina ---------- */
+.qtyRow { display: flex; align-items: center; gap: 8px; }
+.qtyBtn {
+  width: 34px; height: 34px; flex: none;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-md);
+  background: var(--glass);
+  color: var(--text);
+  font-size: 18px; line-height: 1; cursor: pointer;
+}
+.qtyBtn:hover { background: var(--glass-2); border-color: var(--stroke-strong); }
+.qtyInput {
+  flex: 1; min-width: 0; height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-md);
+  background: var(--glass);
+  color: var(--text);
+  font-size: 15px; font-weight: 700; text-align: center;
+}
+.qtyInput:focus {
+  outline: none;
+  border-color: var(--stroke-brand);
+  box-shadow: 0 0 0 2px rgba(15, 162, 218, 0.22);
+}
+.qtyHint { margin: 6px 0 0; font-size: 11px; color: var(--text-muted); }

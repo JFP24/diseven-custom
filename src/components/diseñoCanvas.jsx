@@ -457,6 +457,14 @@ const ICON_METRICS = {
 // que una sencilla). Es función para poder usar las constantes de más abajo.
 const plateWidthMm = (st) => (isLegrand(st) ? LEGRAND_PLATE_MM.w : RETRO_PLATE_MM.w);
 
+// Cuántas veces se repite la placa en la lámina de exportación. Proyectos
+// guardados antes de existir este campo valen 1.
+const QTY_MAX = 50;
+const plateQty = (snapshot) => {
+  const n = Math.floor(Number(snapshot?.qty));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, QTY_MAX) : 1;
+};
+
 // Reparto del espacio sobrante de la casilla por encima del bloque icono+texto.
 // 0.5 = bloque centrado; >0.5 lo baja, dejando la etiqueta más pegada a la línea
 // divisoria de abajo (como en las fichas de referencia).
@@ -1465,6 +1473,7 @@ const esFondoBlanco = !esFondoNegro;
 // --- estados base (deja esto ANTES de cualquier uso) ---
 // Línea de producto: 'retro' (retroiluminado, el de siempre) | 'legrand'.
 const [switchType, setSwitchType] = useState('retro');
+const [qty, setQty] = useState(1);   // veces que la placa entra en la lamina
 const [plateMode, setPlateMode] = useState('sencilla');
 const [selectedCarcasaDoble, setSelectedCarcasaDoble] = useState('/assets/carcasas doble/carcasa1.png');
 
@@ -1710,7 +1719,8 @@ const buildTemplateSnapshot = ({ projectName, placeName }) => {
     theme: selectedColor,       // '#000000' | '#FFFFFF'
     suiche: selectedSuiche,     // imagen seleccionada
     separationStyle,            // estilo de separación entre botones
-    switchType,                 // línea de producto: 'retro' | 'legrand'
+    switchType,                 // linea de producto: retro | legrand
+    qty,                        // veces que se repite en la lamina
     labelFont,                  // fuente del texto de las etiquetas
     orientation,                // 'vertical' | 'horizontal'
   };
@@ -1883,6 +1893,7 @@ const applySnapshot = (snap) => {
   setSelectedSuiche(snap.suiche || dataSuiche.suiche4.image);
   setSeparationStyle(snap.separationStyle || 'lineas');
   setSwitchType(snap.switchType || 'retro');
+  setQty(plateQty(snap));
   setLabelFont(snap.labelFont || 'montserrat');
   setOrientation(snap.orientation || 'vertical');
 
@@ -3092,7 +3103,8 @@ const exportProjectZIP = async (projectId) => {
       const url = await renderPlateExport(full.snapshot);
       if (!url) continue;
       const img = await loadImage(url).catch(() => null);
-      if (img) images.push(img);
+      // Cantidad: la misma placa entra tantas veces en la lámina como se pidió.
+      if (img) for (let k = 0; k < plateQty(full.snapshot); k++) images.push(img);
     }
 
     if (!images.length) {
@@ -3943,6 +3955,27 @@ const forceFullRebuild = () => {
       </div>
       <div className={styles.layout}>
         <aside className={styles.sidebar}>
+
+<h4 className={styles.sectionTitle}>Cantidad</h4>
+<div className={styles.qtyRow}>
+  <button type="button" className={styles.qtyBtn}
+    onClick={() => setQty((n) => Math.max(1, (Number(n) || 1) - 1))}
+    aria-label="Quitar una">−</button>
+  <input
+    type="number" min="1" max={QTY_MAX} value={qty}
+    onChange={(e) => setQty(e.target.value)}
+    onBlur={() => setQty((n) => plateQty({ qty: n }))}
+    className={styles.qtyInput}
+    aria-label="Veces que se repite la placa al exportar"
+    title={`Veces que esta placa entra en la lámina (1 a ${QTY_MAX})`}
+  />
+  <button type="button" className={styles.qtyBtn}
+    onClick={() => setQty((n) => Math.min(QTY_MAX, (Number(n) || 1) + 1))}
+    aria-label="Agregar una">+</button>
+</div>
+<p className={styles.qtyHint}>Se repite {plateQty({ qty })} {plateQty({ qty }) === 1 ? 'vez' : 'veces'} al exportar el proyecto.</p>
+
+<hr />
 
 <h4 className={styles.sectionTitle}>Tipo de interruptor</h4>
 <div className={styles.toggleRow}>
