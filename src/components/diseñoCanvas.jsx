@@ -16,6 +16,7 @@ import Swal from 'sweetalert2';
 
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import { iconLabel, iconMatches } from "../data/iconNames.js";
 // --- Métrica unificada del icono+etiqueta (usada por editor y exportación) ---
 const ICON_LABEL_GAP = 6;     // separación icono → etiqueta
 const LABEL_LINE_HEIGHT = 1.15;
@@ -432,12 +433,47 @@ const IconWithLabel = ({
 // content-fit, layout PAREJO y texto en MAYÚSCULAS. Es solo visual; la lógica del
 // export (renderPlateExport) NO se toca. Se puede desactivar con EDITOR_EXPORT_STYLE.
 const EDITOR_EXPORT_STYLE = true;
-const ED_U_PER_MM = 215 / 34.469; // unidades de diseño por mm (igual que el export)
-const ED_ICON_BIG_MM = 15, ED_ICON_SMALL_MM = 9, ED_LARGE_CELL_MM = 25;
-const ED_FONT_SMALL_MM = 1.87, ED_LABEL_W_RATIO = 0.085;
 
-const ExportStyleIcon = ({ icon, slot, plate, isWhite, onSelect, fontOpt }) => {
+// Métrica del icono por LÍNEA DE PRODUCTO. Antes `ED_U_PER_MM` estaba fijo a la
+// medida de la placa retro (34.469 mm), así que en Legrand (45 mm) el editor
+// dibujaba a una escala distinta de la del export. Ahora ambas salen de aquí.
+//   uPerMm      → unidades de diseño por mm (la placa mide 215 uds de ancho)
+//   big/small   → tamaño del icono en mm según el tipo de casilla
+//   largeCellMm → alto de casilla a partir del cual el icono va grande
+//   labelMm     → alto de letra, el mismo en todas las casillas
+// Legrand: medido sobre la ficha de referencia (IMAGENES CESAR). En una casilla
+// de 22.5 × 22.67 mm el icono ocupa el 52.5% del alto → 11.9 ≈ 12 mm, y la altura
+// de mayúscula del texto es 1.52 mm → cuerpo ≈ 2.1 mm. El icono grande sale de
+// escalar el de retro por 45/34.469 ≈ 1.31 → 20 mm.
+// labelMm: UN SOLO tamaño de letra para todas las casillas (antes la casilla
+// grande usaba otro, calculado en píxeles sobre el ancho de la placa; eso hacía
+// que la doble diera letras distintas a la sencilla y al export). El icono sí
+// cambia de tamaño según la casilla; la letra no.
+const ICON_METRICS = {
+  retro:   { uPerMm: 215 / 34.469, big: 15, small: 9,  largeCellMm: 25, labelMm: 1.87 },
+  legrand: { uPerMm: 215 / 45,     big: 20, small: 12, largeCellMm: 32, labelMm: 2.10 },
+};
+// Ancho físico de la placa según la línea (cada mitad de la doble mide lo mismo
+// que una sencilla). Es función para poder usar las constantes de más abajo.
+const plateWidthMm = (st) => (isLegrand(st) ? LEGRAND_PLATE_MM.w : RETRO_PLATE_MM.w);
+
+// Reparto del espacio sobrante de la casilla por encima del bloque icono+texto.
+// 0.5 = bloque centrado; >0.5 lo baja, dejando la etiqueta más pegada a la línea
+// divisoria de abajo (como en las fichas de referencia).
+// El bloque va CENTRADO y, si hay etiqueta, se baja un poco para que el texto
+// quede cerca de la línea divisoria. El desplazamiento se mide contra la altura
+// del TEXTO, no contra la casilla: así una casilla alta (la sencilla) no manda
+// el icono al fondo, y en las bajas el texto igual queda pegado a la línea.
+const blockTopY = (cell, blockH, labelH) => {
+  const leftover = Math.max(0, cell.h - blockH);
+  const shift = labelH > 0 ? Math.min(leftover / 2, labelH * 0.6) : 0;
+  return cell.y + leftover / 2 + shift;
+};
+const iconMetrics = (switchType) => ICON_METRICS[isLegrand(switchType) ? 'legrand' : 'retro'];
+
+const ExportStyleIcon = ({ icon, slot, plate, isWhite, onSelect, fontOpt, switchType }) => {
   const fo = fontOpt || FONT_OPTIONS[0];
+  const M = iconMetrics(switchType);
   const [img] = useImage(iconSvgPath(icon.num, isWhite));
   const [bbox, setBbox] = useState(null);
 
@@ -469,19 +505,22 @@ const ExportStyleIcon = ({ icon, slot, plate, isWhite, onSelect, fontOpt }) => {
 
   if (!img || !bbox || !icon?.num || !slot) return null;
 
-  const U = ED_U_PER_MM;
+  // Escala del ÁREA: cada placa (sencilla, izquierda, derecha) representa el mismo
+  // ancho físico, aunque en el editor se dibujen con distinto número de unidades.
+  // Derivarla del ancho real hace que la doble mida igual que la sencilla.
+  const U = plate?.w ? plate.w / plateWidthMm(switchType) : M.uPerMm;
   const cellHeightMm = slot.h / U;
-  const isLarge = cellHeightMm >= ED_LARGE_CELL_MM && slot.w >= (plate?.w || slot.w) * 0.7;
+  const isLarge = cellHeightMm >= M.largeCellMm && slot.w >= (plate?.w || slot.w) * 0.7;
   const isSmall = !isLarge;
   // Área REAL delimitada por las líneas (inset del marco donde no llegan las líneas).
-  const cell = innerCellRect(slot, plate);
+  const cell = contentRect(slot, plate, switchType);
   const fscale = fo.scale || 1; // scripts se ven más pequeñas → se agrandan
 
   // 1) TEXTO primero (para reservar su espacio).
   const lines = exportLabelLines(icon.label, fo.upper !== false);
   const maxW = cell.w * 0.94;
   const longest = lines.length ? Math.max(...lines.map((l) => l.length)) : 0;
-  let fs = (isSmall ? ED_FONT_SMALL_MM * U : slot.w * ED_LABEL_W_RATIO) * fscale;
+  let fs = M.labelMm * U * fscale;
   const minFs = slot.w * 0.075;
   while (fs > minFs && longest * fs * 0.72 > maxW) fs -= 0.5;
   const lh = fs * LABEL_LINE_HEIGHT;
@@ -490,7 +529,7 @@ const ExportStyleIcon = ({ icon, slot, plate, isWhite, onSelect, fontOpt }) => {
 
   // 2) ICONO: limitado por ancho del cuadro y por el espacio del texto (no se sale).
   const boxDesign = Math.min(
-    (isLarge ? ED_ICON_BIG_MM : ED_ICON_SMALL_MM) * U,
+    (isLarge ? M.big : M.small) * U,
     cell.w * 0.72,
     Math.max(cell.h * 0.28, cell.h * 0.92 - labelH)
   );
@@ -499,10 +538,11 @@ const ExportStyleIcon = ({ icon, slot, plate, isWhite, onSelect, fontOpt }) => {
   const scl = boxDesign / Math.max(bbox.w, bbox.h);
   const iconW = bbox.w * scl, iconH = bbox.h * scl;
 
-  // 3) Centrar el BLOQUE (icono + texto) dentro del cuadro.
+  // 3) Colocar el BLOQUE (icono + texto) en el cuadro: con etiqueta va algo más
+  //    abajo, para que el texto quede pegado a la línea divisoria.
   const blockH = boxDesign + labelH;
   const cx = cell.x + cell.w / 2;
-  const top = cell.y + (cell.h - blockH) / 2;
+  const top = blockTopY(cell, blockH, labelH);
   const iconBandCenterY = top + boxDesign / 2;
   const textTop = top + boxDesign + gap;
 
@@ -559,6 +599,41 @@ const SeparationLayer = ({ slots, styleId, color, plate }) => {
         return null;
       })}
     </>
+  );
+};
+
+// Divisorias de la línea LEGRAND dibujadas nativas en Konva (editor). Sustituye
+// a la imagen de plantilla cuando el tipo de interruptor es 'legrand'.
+const LegrandLayer = ({ slots, color, plate }) => {
+  if (!slots?.length || !plate?.w) return null;
+  return (
+    <>
+      {buildLegrandPrimitives(slots, plate).map((p, i) => (
+        <Line key={i} points={[p.x1, p.y1, p.x2, p.y2]} stroke={color}
+          strokeWidth={SEP_STROKE_ED} lineCap="round" listening={false} />
+      ))}
+    </>
+  );
+};
+
+// Miniatura de una plantilla LEGRAND. No hay PNG: se dibuja con la misma
+// geometría que usa la placa, así la miniatura nunca se desincroniza.
+const LegrandThumb = ({ plantillaId, className }) => {
+  const W = 46, H = 76;
+  const plate = { x: 0, y: 0, w: W, h: H };
+  const slots = (PLANTILLA_SLOTS[getSlotsKey(plantillaId)] || []).map((s) => ({
+    x: s.x * W, y: s.y * H, w: s.w * W, h: s.h * H,
+  }));
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} className={className}
+         style={{ display: 'block', color: 'currentColor' }}>
+      <rect x={0.75} y={0.75} width={W - 1.5} height={H - 1.5} rx={5} ry={5}
+            fill="none" stroke="currentColor" strokeWidth={1.5} opacity={0.55} />
+      {buildLegrandPrimitives(slots, plate).map((p, i) => (
+        <line key={i} x1={p.x1} y1={p.y1} x2={p.x2} y2={p.y2}
+              stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" />
+      ))}
+    </svg>
   );
 };
 
@@ -666,6 +741,13 @@ const iconSvgPath = (num, blanco = false) =>
 // MARCO exterior se inseta (las líneas de la plantilla no llegan al borde), y en los
 // lados que dan a una DIVISORIA se deja igual. Así el centrado (y el cuadro azul de
 // selección) queda dentro del área delimitada por las líneas, no hasta el borde.
+// Rectángulo donde se centra el contenido. En Legrand NO se aplica el inset: la
+// casilla se toma completa, de borde a borde, para que el icono quede centrado
+// de verdad dentro de cada cuadro de la plantilla.
+function contentRect(slot, plate, switchType) {
+  return isLegrand(switchType) ? slot : innerCellRect(slot, plate);
+}
+
 function innerCellRect(slot, plate) {
   if (!plate || !plate.w) return slot;
   const m = plate.w * 0.075;   // margen ≈ el de las líneas de la plantilla
@@ -737,9 +819,109 @@ const FONT_OPTIONS = [
   { id: 'pacifico',      label: 'Pacifico',     family: 'Pacifico',          weight: 400, upper: false, scale: 1.45 },
   { id: 'greatvibes',    label: 'Great Vibes',  family: 'Great Vibes',       weight: 400, upper: false, scale: 1.7 },
 ];
+// crypto.randomUUID sólo existe en contexto seguro (HTTPS o localhost): al
+// abrir la app por IP plana no está, y poner un icono reventaba. Se usa cuando
+// está disponible y si no se genera un id equivalente a mano.
+let _uidSeq = 0;
+const newId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const rnd = () => Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0');
+  return `id-${Date.now().toString(16)}-${(_uidSeq++).toString(16)}-${rnd()}`;
+};
+
 const getFontOption = (id) => FONT_OPTIONS.find((f) => f.id === id) || FONT_OPTIONS[0];
 // Estilo de fuente para Konva/CSS (ej. "italic 600" | "600").
 const fontStyleStr = (o) => `${o.italic ? 'italic ' : ''}${o.weight}`;
+
+// ── TIPOS DE INTERRUPTOR ─────────────────────────────────────────────────────
+// Línea de producto. 'retro' = el interruptor retroiluminado de siempre (no
+// cambia nada de lo que ya existía). 'legrand' = línea Legrand: las divisorias
+// de la plantilla se dibujan por código con su geometría propia.
+// TODO carcasas Legrand: cuando lleguen las imágenes, rellenar `carcasas` abajo
+// y el selector de ESTILO DEL SUICHE las tomará automáticamente.
+const SWITCH_TYPES = [
+  { id: 'retro',   label: 'Retroiluminado' },
+  { id: 'legrand', label: 'Legrand' },
+];
+const isLegrand = (t) => t === 'legrand';
+
+// Carcasas (marcos) de la línea Legrand. `win` es el hueco interior medido
+// sobre el PNG ya recortado, normalizado 0..1 — con él la placa se encaja
+// exactamente dentro de la ventana sin deformar la foto del marco.
+const LEGRAND_SUICHES = {
+  legrandBlanca: {
+    image: '/assets/suichesLegrand/legrand-blanca.png', label: 'Blanca', color: '#FFFFFF',
+    win: { x: 0.25474, y: 0.22280, w: 0.48947, h: 0.53800 },
+  },
+  legrandNegra: {
+    image: '/assets/suichesLegrand/legrand-negra.png', label: 'Negra', color: '#000000',
+    win: { x: 0.25789, y: 0.22255, w: 0.48421, h: 0.53996 },
+  },
+};
+const getLegrandSuiche = (src) =>
+  Object.values(LEGRAND_SUICHES).find((s) => s.image === src) || LEGRAND_SUICHES.legrandNegra;
+
+// Rectángulo donde se dibuja un marco para que su ventana caiga justo sobre
+// `plate`. Conserva la proporción original de la imagen.
+const legrandFrameRect = (win, plate) => {
+  const w = plate.w / win.w, h = plate.h / win.h;
+  return { x: plate.x - win.x * w, y: plate.y - win.y * h, width: w, height: h };
+};
+
+// Rejilla de divisorias medida sobre la referencia "plantillas legrand.png":
+// las líneas NO llegan al borde de la placa, se cortan a un margen uniforme del
+// 7.5% del lado MENOR (horizontales ≈85% del ancho, vertical ≈90% del alto).
+// Las divisorias se derivan de las casillas, así sirve para las 15 plantillas.
+const LEGRAND_INSET_RATIO = 0.075;
+
+// Agrupa valores casi iguales (las plantillas traen 0.4996 / 0.5 / 0.495…).
+function clusterEdges(values, tol) {
+  const out = [];
+  for (const v of [...values].sort((a, b) => a - b)) {
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.sum / last.n - v) <= tol) { last.sum += v; last.n++; }
+    else out.push({ sum: v, n: 1 });
+  }
+  return out.map((c) => c.sum / c.n);
+}
+
+function buildLegrandPrimitives(slots, plate) {
+  if (!slots?.length || !plate?.w) return [];
+  const P = [];
+  const m = Math.min(plate.w, plate.h) * LEGRAND_INSET_RATIO;
+  const pL = plate.x, pR = plate.x + plate.w, pT = plate.y, pB = plate.y + plate.h;
+  const L = pL + m, R = pR - m, T = pT + m, B = pB - m;
+  const tol = Math.min(plate.w, plate.h) * 0.02;
+  const inside = (v, lo, hi) => v > lo + tol && v < hi - tol;
+
+  // Divisorias HORIZONTALES: cada borde interno compartido entre filas.
+  const yEdges = clusterEdges(
+    slots.flatMap((s) => [s.y, s.y + s.h]).filter((y) => inside(y, pT, pB)), tol);
+  for (const y of yEdges) {
+    const touching = slots.filter((s) => Math.abs(s.y - y) <= tol || Math.abs(s.y + s.h - y) <= tol);
+    if (!touching.length) continue;
+    const s0 = Math.min(...touching.map((s) => s.x));
+    const s1 = Math.max(...touching.map((s) => s.x + s.w));
+    // Se insetan sólo los extremos que dan al MARCO de la placa.
+    const x1 = s0 <= pL + tol ? L : s0;
+    const x2 = s1 >= pR - tol ? R : s1;
+    if (x2 > x1) P.push({ t: 'line', x1, y1: y, x2, y2: y });
+  }
+
+  // Divisorias VERTICALES: continuas a lo largo de las filas que separan.
+  const xEdges = clusterEdges(
+    slots.flatMap((s) => [s.x, s.x + s.w]).filter((x) => inside(x, pL, pR)), tol);
+  for (const x of xEdges) {
+    const touching = slots.filter((s) => Math.abs(s.x - x) <= tol || Math.abs(s.x + s.w - x) <= tol);
+    if (!touching.length) continue;
+    const s0 = Math.min(...touching.map((s) => s.y));
+    const s1 = Math.max(...touching.map((s) => s.y + s.h));
+    const y1 = s0 <= pT + tol ? T : s0;
+    const y2 = s1 >= pB - tol ? B : s1;
+    if (y2 > y1) P.push({ t: 'line', x1: x, y1, x2: x, y2 });
+  }
+  return P;
+}
 
 // Devuelve primitivas de dibujo en el MISMO espacio de coords que los slots:
 //   {t:'rrect',x,y,w,h,r} | {t:'line',x1,y1,x2,y2} | {t:'poly',pts:[...],closed}
@@ -910,7 +1092,37 @@ const PLANTILLA_SLOTS = {
     { x: 0, y: 0.75, w: 0.5, h: 0.25 },
     { x: 0.5, y: 0.75, w: 0.5, h: 0.25 }
   ],
+
+  // ── Plantillas de la línea LEGRAND ────────────────────────────────────────
+  // Las 4 de la referencia "plantillas legrand.png". Filas siempre repartidas
+  // en partes iguales; la columna parte la placa por la mitad.
+  'plantillas-L1.png': [
+    { x: 0, y: 0, w: 1, h: 1 }
+  ],
+  'plantillas-L2.png': [
+    { x: 0, y: 0,   w: 1, h: 0.5 },
+    { x: 0, y: 0.5, w: 1, h: 0.5 }
+  ],
+  'plantillas-L3.png': [
+    { x: 0, y: 0,      w: 1, h: 1 / 3 },
+    { x: 0, y: 1 / 3,  w: 1, h: 1 / 3 },
+    { x: 0, y: 2 / 3,  w: 1, h: 1 / 3 }
+  ],
+  'plantillas-L6.png': [
+    { x: 0,   y: 0,     w: 0.5, h: 1 / 3 },
+    { x: 0.5, y: 0,     w: 0.5, h: 1 / 3 },
+    { x: 0,   y: 1 / 3, w: 0.5, h: 1 / 3 },
+    { x: 0.5, y: 1 / 3, w: 0.5, h: 1 / 3 },
+    { x: 0,   y: 2 / 3, w: 0.5, h: 1 / 3 },
+    { x: 0.5, y: 2 / 3, w: 0.5, h: 1 / 3 }
+  ],
 };
+
+// Plantillas disponibles según la línea de producto.
+const LEGRAND_PLANTILLA_IDS = ['L1', 'L2', 'L3', 'L6'];
+const getPlantillaIds = (switchType) =>
+  isLegrand(switchType) ? LEGRAND_PLANTILLA_IDS : plantillaIds;
+const defaultPlantillaId = (switchType) => (isLegrand(switchType) ? 'L1' : '04');
 
 
 
@@ -920,6 +1132,31 @@ const PL_X = 490, PL_Y = 235, PL_W = 205, PL_H = 395;
 const SINGLE_PLATE = { x: 485, y: 228, w: 215, h: 405 };
 const DOUBLE_PLATE_LEFT  = { x: 360, y: 235, w: 205, h: 395 };
 const DOUBLE_PLATE_RIGHT = { x: 620, y: 235, w: 205, h: 395 };
+
+// ── Medida FÍSICA de la placa, por línea de producto ─────────────────────────
+// Única fuente de verdad: de aquí salen tanto el dibujo del editor como el
+// tamaño real del PNG exportado, así nunca se desincronizan.
+// Retro: la de siempre. Legrand: 45 × 68 mm, medida real de la plantilla.
+const RETRO_PLATE_MM   = { w: 34.469, h: 67.379 };
+const LEGRAND_PLATE_MM = { w: 45, h: 68 };
+const plateMM = (switchType, horizontal) => {
+  if (isLegrand(switchType)) return LEGRAND_PLATE_MM;   // Legrand siempre vertical
+  return horizontal
+    ? { w: RETRO_PLATE_MM.h, h: RETRO_PLATE_MM.w }
+    : RETRO_PLATE_MM;
+};
+
+// Placa de la línea LEGRAND en coordenadas de diseño: mismo centro y mismo
+// ANCHO que la retroiluminada (así los iconos conservan su escala en mm).
+const LEGRAND_PLATE = (() => {
+  const w = SINGLE_PLATE.w;
+  const h = Math.round(w * (LEGRAND_PLATE_MM.h / LEGRAND_PLATE_MM.w));
+  return {
+    x: SINGLE_PLATE.x,
+    y: Math.round(SINGLE_PLATE.y + (SINGLE_PLATE.h - h) / 2),
+    w, h,
+  };
+})();
 
 // Placa SENCILLA en HORIZONTAL: mismo centro, ancho y alto intercambiados.
 const SC = { x: SINGLE_PLATE.x + SINGLE_PLATE.w / 2, y: SINGLE_PLATE.y + SINGLE_PLATE.h / 2 };
@@ -1226,6 +1463,8 @@ const [labelInput, setLabelInput] = useState('');
 const esFondoNegro = selectedColor?.toLowerCase() === '#000000';
 const esFondoBlanco = !esFondoNegro;
 // --- estados base (deja esto ANTES de cualquier uso) ---
+// Línea de producto: 'retro' (retroiluminado, el de siempre) | 'legrand'.
+const [switchType, setSwitchType] = useState('retro');
 const [plateMode, setPlateMode] = useState('sencilla');
 const [selectedCarcasaDoble, setSelectedCarcasaDoble] = useState('/assets/carcasas doble/carcasa1.png');
 
@@ -1274,10 +1513,12 @@ const getPlantillaPath = (id) =>
     ? `/assets/PLANTILLAS BLANCAS/plantillas-blancas-${id}.png`
     : `/assets/PLANTILLAS/plantillas-${id}.png`;
 
-// IMÁGENES cargadas
-const [plantillaSingle] = useImage(getPlantillaPath(selectedPlantillaSingle));
-const [plantillaLeft]   = useImage(getPlantillaPath(selectedPlantillaLeft));
-const [plantillaRight]  = useImage(getPlantillaPath(selectedPlantillaRight));
+// IMÁGENES cargadas. La línea Legrand no tiene PNG de rejilla (se dibuja por
+// código), así que no se pide ninguna imagen para evitar 404.
+const plantillaSrc = (id) => (isLegrand(switchType) ? '' : getPlantillaPath(id));
+const [plantillaSingle] = useImage(plantillaSrc(selectedPlantillaSingle));
+const [plantillaLeft]   = useImage(plantillaSrc(selectedPlantillaLeft));
+const [plantillaRight]  = useImage(plantillaSrc(selectedPlantillaRight));
 const [carcasaSingle, carcasaSingleStatus] = useImage(selectedSuiche);
 const [carcasaDoble, carcasaDobleStatus]   = useImage(selectedCarcasaDoble);
 const isLoadingImage = 
@@ -1287,7 +1528,9 @@ const isLoadingImage =
 
 // Placa sencilla según orientación (horizontal = ancho×alto intercambiados).
 const isHorizontal = orientation === 'horizontal';
-const plateSingle = isHorizontal ? SINGLE_PLATE_H : SINGLE_PLATE;
+const plateSingle = isLegrand(switchType)
+  ? LEGRAND_PLATE
+  : (isHorizontal ? SINGLE_PLATE_H : SINGLE_PLATE);
 
 // SLOTS por área
 const slotsSingle = getSlotsForArea(plateSingle, selectedPlantillaSingle, orientation) || [];
@@ -1467,6 +1710,7 @@ const buildTemplateSnapshot = ({ projectName, placeName }) => {
     theme: selectedColor,       // '#000000' | '#FFFFFF'
     suiche: selectedSuiche,     // imagen seleccionada
     separationStyle,            // estilo de separación entre botones
+    switchType,                 // línea de producto: 'retro' | 'legrand'
     labelFont,                  // fuente del texto de las etiquetas
     orientation,                // 'vertical' | 'horizontal'
   };
@@ -1638,6 +1882,7 @@ const applySnapshot = (snap) => {
   setSelectedColor(snap.theme || '#000000');
   setSelectedSuiche(snap.suiche || dataSuiche.suiche4.image);
   setSeparationStyle(snap.separationStyle || 'lineas');
+  setSwitchType(snap.switchType || 'retro');
   setLabelFont(snap.labelFont || 'montserrat');
   setOrientation(snap.orientation || 'vertical');
 
@@ -1673,7 +1918,7 @@ const applySnapshot = (snap) => {
       const { x, y, size } = layoutIconInSlot(s, true);
 
       return {
-        id: crypto.randomUUID(),
+        id: newId(),
         num,
         src: getIconPath(num),
         label,
@@ -1710,7 +1955,7 @@ const applySnapshot = (snap) => {
       const { x, y, size } = layoutIconInSlot(s, true);
 
       return {
-        id: crypto.randomUUID(),
+        id: newId(),
         num,
         src: getIconPath(num),
         label,
@@ -1731,7 +1976,7 @@ const applySnapshot = (snap) => {
       const { x, y, size } = layoutIconInSlot(s, true);
 
       return {
-        id: crypto.randomUUID(),
+        id: newId(),
         num,
         src: getIconPath(num),
         label,
@@ -1845,6 +2090,21 @@ const captureStageThumb = async () => {
 const resetAll = () => {
   setIconsSingle([]); setIconsLeft([]); setIconsRight([]);
   setActiveSlotIdx(null); setSelectedIconId(null); setEditingIconId(null);
+};
+
+// Cambiar de línea de producto: cada una tiene su propio juego de plantillas,
+// así que las seleccionadas se vuelven a la por defecto de la línea nueva.
+const changeSwitchType = (next) => {
+  setSwitchType(next);
+  // Cada línea tiene sus propias carcasas y su propio juego de plantillas.
+  setSelectedSuiche(isLegrand(next) ? LEGRAND_SUICHES.legrandNegra.image : dataSuiche.suiche4.image);
+  if (isLegrand(next)) { setPlateMode('sencilla'); setActiveArea('single'); setOrientation('vertical'); }
+  const def = defaultPlantillaId(next);
+  setSelectedPlantillaSingle(def);
+  setSelectedPlantillaLeft(def);
+  setSelectedPlantillaRight(def);
+  setSelectedPlantilla(def);
+  resetAll();
 };
 
 // helpers de selección – deben ir ANTES de handleStageMouseDown
@@ -1985,7 +2245,7 @@ const placeOrReplaceIcon = (num, label = '') => {
 
   const prev = curIcons.filter(ic => (ic.slotIdx ?? -1) !== target);
    const newIcon = {
-    id: crypto.randomUUID(),
+    id: newId(),
     num,                       // <- guardamos el número
     src,                       // <- ruta acorde al fondo actual
     label,
@@ -2601,9 +2861,11 @@ async function renderPlateExport(snapshot) {
   // Orientación: horizontal = ancho×alto intercambiados (marco acostado).
   const horizontal = snapshot.orientation === 'horizontal';
 
-  // Medida física del MARCO para la máquina láser (Omni1), en milímetros
-  const TARGET_W_MM = horizontal ? 67.379 : 34.469;
-  const TARGET_H_MM = horizontal ? 34.469 : 67.379;
+  // Medida física del MARCO para la máquina láser (Omni1), en milímetros.
+  // Sale de plateMM(), la misma que usa el editor → export y pantalla coinciden.
+  const _mm = plateMM(snapshot.switchType, horizontal);
+  const TARGET_W_MM = _mm.w;
+  const TARGET_H_MM = _mm.h;
   const DPI = 1000;            // igual que la referencia (1000 DPI)
 
   // OUTER = borde EXTERIOR del marco (lo que mide la máquina) = medida objetivo.
@@ -2625,15 +2887,16 @@ async function renderPlateExport(snapshot) {
   const ppm = Math.round((DPI * 1000) / 25.4); // px por metro para el chunk pHYs
 
   const MARGIN = 10;          // margen pequeño (el marco debe ir ajustado)
-  const LABEL_W_RATIO = 0.085; // tamaño de texto ≈ 8.5% del ancho de la placa
   const LABEL_WEIGHT = 600;    // peso de fuente
 
   // Tamaño ESTÁNDAR del icono según el ALTO de la casilla (en mm). El dibujo LLENA el cuadro.
+  // Sale de ICON_METRICS, la misma tabla que usa el editor → WYSIWYG.
+  const _M = iconMetrics(snapshot.switchType);
   const U_PER_MM = OUTER_W / TARGET_W_MM; // unidades de diseño por mm
-  const ICON_BIG_MM = 15;     // casilla alta → icono 15 × 15 mm
-  const ICON_SMALL_MM = 9;    // casilla baja → icono 9 × 9 mm (un poco más grande)
-  const LARGE_CELL_MM = 25;   // umbral: casilla con alto ≥ 25 mm → icono grande (14mm)
-  const FONT_SMALL_MM = 1.87; // casilla baja → letra ≈ 1.87 mm (YOUTUBE ≈ 9.455 × 1.306 mm)
+  const ICON_BIG_MM = _M.big;     // casilla alta → icono grande
+  const ICON_SMALL_MM = _M.small; // casilla baja → icono pequeño
+  const LARGE_CELL_MM = _M.largeCellMm; // umbral de casilla alta
+  const LABEL_MM = _M.labelMm;  // alto de letra, igual en TODAS las casillas
   const TARGET_STROKE_PX = STROKE_MM * (ppm / 1000); // 0.36 mm en px reales
   const ICON_STROKE_MM = 0.35; // grosor UNIFORME de los iconos (igual en toda casilla)
   const ICON_STROKE_PX = ICON_STROKE_MM * (ppm / 1000); // 0.35 mm en px reales
@@ -2665,19 +2928,26 @@ async function renderPlateExport(snapshot) {
   for (const area of areas) {
     const p = area.plate;
 
-    // 1) Contorno redondeado de la placa (grosor único)
+    // 1) Contorno de la placa (grosor único). Legrand va con esquina VIVA
+    //    (sin redondear), como en las fichas de referencia.
     ctx.strokeStyle = "#000";
     ctx.lineWidth = STROKE;
-    ctx.lineJoin = "round";
+    ctx.lineJoin = isLegrand(snapshot.switchType) ? "miter" : "round";
     ctx.lineCap = "round";
-    ctxRoundRect(ctx, p.x, p.y, p.w, p.h, Math.min(p.w, p.h) * 0.11);
+    ctxRoundRect(ctx, p.x, p.y, p.w, p.h,
+      isLegrand(snapshot.switchType) ? 0 : Math.min(p.w, p.h) * 0.11);
     ctx.stroke();
 
     // 2) Divisorias internas. Según el estilo elegido:
-    //    - 'lineas'  → imagen de la plantilla normalizada a 0.36 mm (rejilla).
+    //    - 'lineas'  → imagen de la plantilla normalizada a 0.36 mm (rejilla),
+    //                  salvo en la línea Legrand, que trae su propia geometría.
     //    - resto     → estilo "botón" dibujado por código a partir de las casillas.
     const sepStyle = snapshot.separationStyle || 'lineas';
-    if (sepStyle === 'lineas') {
+    const legrand = isLegrand(snapshot.switchType);
+    if (sepStyle === 'lineas' && legrand) {
+      const sepSlots = getSlotsForArea(p, area.plantillaId, snapshot.orientation);
+      drawSeparationOnCtx(ctx, buildLegrandPrimitives(sepSlots, p), STROKE);
+    } else if (sepStyle === 'lineas') {
       const plImg = await loadImage(`/assets/PLANTILLAS/plantillas-${area.plantillaId}.png`).catch(() => null);
       if (plImg) {
         const dstW = Math.max(1, Math.round(p.w * PR));
@@ -2731,14 +3001,14 @@ async function renderPlateExport(snapshot) {
       const isLargeCell = cellHeightMm >= LARGE_CELL_MM && slot.w >= p.w * 0.7;
       const isSmallCell = !isLargeCell;
       // Área REAL delimitada por las líneas (inset del marco donde no llegan las líneas).
-      const cell = innerCellRect(slot, p);
+      const cell = contentRect(slot, p, snapshot.switchType);
       const fscale = fontOpt.scale || 1; // scripts se ven más pequeñas → se agrandan
 
       // 1) TEXTO primero (para saber cuánto espacio ocupa y reservarlo).
       const lines = exportLabelLines(icon.label, fontOpt.upper !== false);
       const maxW = cell.w * 0.94;
       const longest = lines.length ? Math.max(...lines.map((l) => l.length)) : 0;
-      let fs = (isSmallCell ? FONT_SMALL_MM * U_PER_MM : slot.w * LABEL_W_RATIO) * fscale;
+      let fs = LABEL_MM * U_PER_MM * fscale;
       const minFs = slot.w * 0.075;
       while (fs > minFs && longest * fs * 0.72 > maxW) fs -= 0.5;
       const lh = fs * LABEL_LINE_HEIGHT;
@@ -2760,10 +3030,11 @@ async function renderPlateExport(snapshot) {
       const iconW = ic.wPx / (PR * SS);   // ancho real del dibujo (unidades diseño)
       const iconH = ic.hPx / (PR * SS);   // alto real del dibujo
 
-      // 3) Centrar el BLOQUE (icono + texto) dentro del cuadro.
+      // 3) Colocar el BLOQUE (icono + texto): misma regla que el editor, con la
+      //    etiqueta pegada a la línea divisoria cuando hay texto.
       const blockH = boxDesign + labelH;
       const cx = cell.x + cell.w / 2;
-      const top = cell.y + (cell.h - blockH) / 2;
+      const top = blockTopY(cell, blockH, labelH);
       const iconBandCenterY = top + boxDesign / 2;
       ctx.drawImage(ic.canvas, cx - iconW / 2, iconBandCenterY - iconH / 2, iconW, iconH);
 
@@ -3673,6 +3944,23 @@ const forceFullRebuild = () => {
       <div className={styles.layout}>
         <aside className={styles.sidebar}>
 
+<h4 className={styles.sectionTitle}>Tipo de interruptor</h4>
+<div className={styles.toggleRow}>
+  {SWITCH_TYPES.map((st) => (
+    <button
+      key={st.id}
+      type="button"
+      className={`${styles.smallButton} ${styles.switchTypeToggle} ${switchType === st.id ? styles.active : ''}`}
+      onClick={() => { if (st.id !== switchType) changeSwitchType(st.id); }}
+      aria-pressed={switchType === st.id}
+      title={st.label}
+      style={{ fontWeight: 700 }}
+    >{st.label}</button>
+  ))}
+</div>
+
+<hr />
+
 <h4 className={styles.sectionTitle}>{t("editor.plateType")}</h4>
 <div className={styles.toggleRow}>
   {/* Sencilla */}
@@ -3742,7 +4030,7 @@ const forceFullRebuild = () => {
     />
     {/* Nombre al lado de la miniatura */}
     <span className={styles.previewCaption}>
-      {(Object.values(dataSuiche).find(s => s.image === selectedSuiche)?.label) || t("editor.suiche")}
+      {(Object.values(isLegrand(switchType) ? LEGRAND_SUICHES : dataSuiche).find(s => s.image === selectedSuiche)?.label) || t("editor.suiche")}
     </span>
   </span>
   <span className={styles.previewChevron} aria-hidden>›</span>
@@ -3782,14 +4070,22 @@ const forceFullRebuild = () => {
   title="Elegir plantilla"
 >
   <div className={styles.thumbStrip}>
-    {PREVIEW_PLANTILLAS.map((id) => (
-     <img
-  key={id}
-  src={getPlantillaPath(id)}
-  alt={`Plantilla ${id}`}
-  className={`${styles.thumbMini} ${styles.thumbMiniPlantilla} ${esFondoNegro ? styles.thumbMiniPlantillaDark : ''}`}
-  draggable={false}
-/>
+    {(isLegrand(switchType) ? LEGRAND_PLANTILLA_IDS.slice(1, 4) : PREVIEW_PLANTILLAS).map((id) => (
+      isLegrand(switchType) ? (
+        <LegrandThumb
+          key={id}
+          plantillaId={id}
+          className={`${styles.thumbMini} ${styles.thumbMiniPlantilla} ${esFondoNegro ? styles.thumbMiniPlantillaDark : ''}`}
+        />
+      ) : (
+        <img
+          key={id}
+          src={getPlantillaPath(id)}
+          alt={`Plantilla ${id}`}
+          className={`${styles.thumbMini} ${styles.thumbMiniPlantilla} ${esFondoNegro ? styles.thumbMiniPlantillaDark : ''}`}
+          draggable={false}
+        />
+      )
     ))}
   </div>
   <span className={styles.previewChevron} aria-hidden>›</span>
@@ -3810,7 +4106,8 @@ const forceFullRebuild = () => {
       <img
         key={num}
         src={getIconPath(num)}
-        alt={`Icono ${num}`}
+        alt={iconLabel(num)}
+        title={iconLabel(num)}
         className={styles.thumbMiniIcon}
         draggable={false}
       />
@@ -3974,7 +4271,10 @@ const forceFullRebuild = () => {
       <>
       
     {showCarcasa && carcasaSingle && (
-  isHorizontal ? (
+  isLegrand(switchType) ? (
+    // Legrand: el marco se escala para que su ventana calce con la placa.
+    <KonvaImage image={carcasaSingle} {...legrandFrameRect(getLegrandSuiche(selectedSuiche).win, LEGRAND_PLATE)} className={styles.carcasa} />
+  ) : isHorizontal ? (
     <KonvaImage
       image={carcasaSingle}
       x={592.5} y={432.5} width={785} height={785}
@@ -4000,12 +4300,12 @@ const forceFullRebuild = () => {
     width={plateSingle.w}
     height={plateSingle.h}
     fill={selectedColor}
-    cornerRadius={15}
+    cornerRadius={isLegrand(switchType) ? 0 : 15}
   />
 )}
 
 
-      {plantillaSingle && separationStyle === 'lineas' && (
+      {plantillaSingle && separationStyle === 'lineas' && !isLegrand(switchType) && (
   isHorizontal ? (
     // Horizontal: la imagen de líneas se rota 90° alrededor del centro de la placa.
     <KonvaImage
@@ -4033,12 +4333,15 @@ const forceFullRebuild = () => {
     />
   )
 )}
+{separationStyle === 'lineas' && isLegrand(switchType) && (
+  <LegrandLayer slots={slotsSingle} plate={plateSingle} color={esFondoNegro ? '#ffffff' : '#111111'} />
+)}
 {separationStyle !== 'lineas' && (
   <SeparationLayer slots={slotsSingle} styleId={separationStyle} plate={plateSingle} color={esFondoNegro ? '#ffffff' : '#111111'} />
 )}
 
         {/* Slots + selección de slot (ocultos cuando exportas) */}
-     {!isExporting && slotsSingle.map((s, i) => { const c = innerCellRect(s, plateSingle); return (
+     {!isExporting && slotsSingle.map((s, i) => { const c = contentRect(s, plateSingle, switchType); return (
         <Rect
           key={`single-${i}`}
           x={c.x}
@@ -4058,7 +4361,7 @@ const forceFullRebuild = () => {
 
         {iconsSingle.map(icon => (
           EDITOR_EXPORT_STYLE
-            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsSingle[icon.slotIdx]} plate={plateSingle} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
+            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsSingle[icon.slotIdx]} plate={plateSingle} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} switchType={switchType} onSelect={() => handleSelectIcon(icon.id)} />
             : <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
         ))}
       </>
@@ -4070,12 +4373,15 @@ const forceFullRebuild = () => {
 
         {/* IZQUIERDA */}
         <Rect x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h} fill={selectedColor} cornerRadius={15}/>
-{plantillaLeft && separationStyle === 'lineas' && (          <KonvaImage image={plantillaLeft} x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h}/>
+{plantillaLeft && separationStyle === 'lineas' && !isLegrand(switchType) && (          <KonvaImage image={plantillaLeft} x={DOUBLE_PLATE_LEFT.x} y={DOUBLE_PLATE_LEFT.y} width={DOUBLE_PLATE_LEFT.w} height={DOUBLE_PLATE_LEFT.h}/>
+          )}
+          {separationStyle === 'lineas' && isLegrand(switchType) && (
+            <LegrandLayer slots={slotsLeft} plate={DOUBLE_PLATE_LEFT} color={esFondoNegro ? '#ffffff' : '#111111'} />
           )}
           {separationStyle !== 'lineas' && (
             <SeparationLayer slots={slotsLeft} styleId={separationStyle} plate={DOUBLE_PLATE_LEFT} color={esFondoNegro ? '#ffffff' : '#111111'} />
           )}
-          { slotsLeft.map((s, i) => { const c = innerCellRect(s, DOUBLE_PLATE_LEFT); return (
+          { slotsLeft.map((s, i) => { const c = contentRect(s, DOUBLE_PLATE_LEFT, switchType); return (
             <Rect
               key={`left-${i}`}
               x={c.x}
@@ -4093,20 +4399,23 @@ const forceFullRebuild = () => {
           );})}
         {iconsLeft.map(icon => (
           EDITOR_EXPORT_STYLE
-            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsLeft[icon.slotIdx]} plate={DOUBLE_PLATE_LEFT} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
+            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsLeft[icon.slotIdx]} plate={DOUBLE_PLATE_LEFT} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} switchType={switchType} onSelect={() => handleSelectIcon(icon.id)} />
             : <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
         ))}
 
         {/* DERECHA */}
         <Rect x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h} fill={selectedColor} cornerRadius={15}/>
-      {plantillaRight && separationStyle === 'lineas' && (
+      {plantillaRight && separationStyle === 'lineas' && !isLegrand(switchType) && (
           <KonvaImage image={plantillaRight} x={DOUBLE_PLATE_RIGHT.x} y={DOUBLE_PLATE_RIGHT.y} width={DOUBLE_PLATE_RIGHT.w} height={DOUBLE_PLATE_RIGHT.h}/>
+        )}
+        {separationStyle === 'lineas' && isLegrand(switchType) && (
+          <LegrandLayer slots={slotsRight} plate={DOUBLE_PLATE_RIGHT} color={esFondoNegro ? '#ffffff' : '#111111'} />
         )}
         {separationStyle !== 'lineas' && (
           <SeparationLayer slots={slotsRight} styleId={separationStyle} plate={DOUBLE_PLATE_RIGHT} color={esFondoNegro ? '#ffffff' : '#111111'} />
         )}
 
-{ slotsRight.map((s, i) => { const c = innerCellRect(s, DOUBLE_PLATE_RIGHT); return (
+{ slotsRight.map((s, i) => { const c = contentRect(s, DOUBLE_PLATE_RIGHT, switchType); return (
   <Rect
     key={`right-${i}`}
     x={c.x}
@@ -4124,7 +4433,7 @@ const forceFullRebuild = () => {
 );})}
         {iconsRight.map(icon => (
           EDITOR_EXPORT_STYLE
-            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsRight[icon.slotIdx]} plate={DOUBLE_PLATE_RIGHT} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} onSelect={() => handleSelectIcon(icon.id)} />
+            ? <ExportStyleIcon key={icon.id} icon={icon} slot={slotsRight[icon.slotIdx]} plate={DOUBLE_PLATE_RIGHT} isWhite={esFondoNegro} fontOpt={getFontOption(labelFont)} switchType={switchType} onSelect={() => handleSelectIcon(icon.id)} />
             : <IconWithLabel key={icon.id} {...icon} isWhite={esFondoNegro} onSelect={() => handleSelectIcon(icon.id)} />
         ))}
       </>
@@ -4172,7 +4481,7 @@ const forceFullRebuild = () => {
 
 
 <div className={styles.plantillaGrid}>
-  {plantillaIds.map((id) => {
+  {getPlantillaIds(switchType).map((id) => {
     const src = getPlantillaPath(id);
 
     // activo según el área/placa actual
@@ -4193,13 +4502,20 @@ const forceFullRebuild = () => {
         className={`${styles.plantillaBtn} ${isActive ? styles.plantillaBtnActive : ''}`}
         title={`Plantilla ${id}`}
       >
-        <img
-          src={src}
-          alt={`Plantilla ${id}`}
-          className={`${
-            themeKey === 'dark' ? styles.plantillaThumbDark : styles.plantillaThumbLight
-          }`}
-        />
+        {isLegrand(switchType) ? (
+          <LegrandThumb
+            plantillaId={id}
+            className={themeKey === 'dark' ? styles.plantillaThumbDark : styles.plantillaThumbLight}
+          />
+        ) : (
+          <img
+            src={src}
+            alt={`Plantilla ${id}`}
+            className={`${
+              themeKey === 'dark' ? styles.plantillaThumbDark : styles.plantillaThumbLight
+            }`}
+          />
+        )}
       </button>
     );
   })}
@@ -4216,6 +4532,33 @@ const forceFullRebuild = () => {
   width={780}
   variant={modalVariant}
 >
+  {/* Buscador por nombre */}
+  <div className={styles.iconSearchRow}>
+    <input
+      type="search"
+      value={iconSearch}
+      onChange={(e) => setIconSearch(e.target.value)}
+      placeholder="Buscar icono: luz, baño, cortina, tv…"
+      className={styles.iconSearchInput}
+      style={{
+        background: modalVariant === 'dark' ? '#111' : '#fff',
+        color: modalVariant === 'dark' ? '#fff' : '#111',
+        borderColor: modalVariant === 'dark' ? '#333' : '#ddd',
+      }}
+      autoComplete="off"
+      aria-label="Buscar icono por nombre"
+    />
+    {iconSearch && (
+      <button
+        type="button"
+        onClick={() => setIconSearch('')}
+        className={styles.iconSearchClear}
+        aria-label="Limpiar búsqueda"
+        title="Limpiar búsqueda"
+      >×</button>
+    )}
+  </div>
+
   {/* Tabs de categorías */}
   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
     {Object.keys(ICON_CATEGORIES).map((cat) => {
@@ -4255,28 +4598,32 @@ const forceFullRebuild = () => {
         : (ICON_CATEGORIES[selectedCategory] || []);
 
       const q = iconSearch.trim();
-      const filtered = q ? baseList.filter(num => num.includes(q)) : baseList;
+      // Al buscar se ignora la categoría: se busca en TODO el set, que es lo
+      // que uno espera al escribir ("¿dónde está el de ducha?").
+      const filtered = q
+        ? iconNumbers.filter((num) => iconMatches(num, q))
+        : baseList;
 
       if (!filtered.length) {
         return (
           <div style={{ gridColumn: '1 / -1', opacity: 0.7, fontSize: 14 }}>
-            Sin resultados en <b>{selectedCategory}</b>{q && <> para “{q}”</>}.
+            {q ? <>Ningún icono coincide con “{q}”.</> : <>Sin iconos en <b>{selectedCategory}</b>.</>}
           </div>
         );
       }
 
       return filtered.map((num) => {
-        const label = num; // solo para la miniatura del selector
+        const label = iconLabel(num);
         return (
           <button
             key={`${selectedCategory}-${num}`}
             onClick={() => { placeOrReplaceIcon(num, ''); setIconsModalOpen(false); }}
             className={styles.iconoButton}
-            title={`Icono ${num}`}
+            title={`${label} (${num})`}
           >
             <img
               src={getIconPath(num)}
-              alt={`Icono ${num}`}
+              alt={label}
               className={`${themeKey === 'dark' ? styles.iconoMiniaturaDark : styles.iconoMiniaturaLigh}`}
               draggable={false}
             />
@@ -4302,7 +4649,7 @@ const forceFullRebuild = () => {
     }`}
  
   >
-    {Object.entries(dataSuiche).map(([key, value], i) => {
+    {Object.entries(isLegrand(switchType) ? LEGRAND_SUICHES : dataSuiche).map(([key, value], i) => {
       const extraClass = value.cssClass ? styles[value.cssClass] : '';
       const isActive = selectedSuiche === value.image;
 
