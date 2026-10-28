@@ -3956,27 +3956,6 @@ const forceFullRebuild = () => {
       <div className={styles.layout}>
         <aside className={styles.sidebar}>
 
-<h4 className={styles.sectionTitle}>Cantidad</h4>
-<div className={styles.qtyRow}>
-  <button type="button" className={styles.qtyBtn}
-    onClick={() => setQty((n) => Math.max(1, (Number(n) || 1) - 1))}
-    aria-label="Quitar una">−</button>
-  <input
-    type="number" min="1" max={QTY_MAX} value={qty}
-    onChange={(e) => setQty(e.target.value)}
-    onBlur={() => setQty((n) => plateQty({ qty: n }))}
-    className={styles.qtyInput}
-    aria-label="Veces que se repite la placa al exportar"
-    title={`Veces que esta placa entra en la lámina (1 a ${QTY_MAX})`}
-  />
-  <button type="button" className={styles.qtyBtn}
-    onClick={() => setQty((n) => Math.min(QTY_MAX, (Number(n) || 1) + 1))}
-    aria-label="Agregar una">+</button>
-</div>
-<p className={styles.qtyHint}>Se repite {plateQty({ qty })} {plateQty({ qty }) === 1 ? 'vez' : 'veces'} al exportar el proyecto.</p>
-
-<hr />
-
 <h4 className={styles.sectionTitle}>Tipo de interruptor</h4>
 <div className={styles.toggleRow}>
   {SWITCH_TYPES.map((st) => (
@@ -4177,6 +4156,27 @@ const forceFullRebuild = () => {
 
 
          
+        <hr />
+
+<h4 className={styles.sectionTitle}>Cantidad</h4>
+<div className={styles.qtyRow}>
+  <button type="button" className={styles.qtyBtn}
+    onClick={() => setQty((n) => Math.max(1, (Number(n) || 1) - 1))}
+    aria-label="Quitar una">−</button>
+  <input
+    type="number" min="1" max={QTY_MAX} value={qty}
+    onChange={(e) => setQty(e.target.value)}
+    onBlur={() => setQty((n) => plateQty({ qty: n }))}
+    className={styles.qtyInput}
+    aria-label="Veces que se repite la placa al exportar"
+    title={`Veces que esta placa entra en la lámina (1 a ${QTY_MAX})`}
+  />
+  <button type="button" className={styles.qtyBtn}
+    onClick={() => setQty((n) => Math.min(QTY_MAX, (Number(n) || 1) + 1))}
+    aria-label="Agregar una">+</button>
+</div>
+<p className={styles.qtyHint}>Se repite {plateQty({ qty })} {plateQty({ qty }) === 1 ? 'vez' : 'veces'} al exportar el proyecto.</p>
+
         <hr />
         <h4 className={styles.sectionTitle}>Separación</h4>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
